@@ -20,12 +20,12 @@ under the License.
 		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 
-	<artifactId>pixels-flink</artifactId>
+	<artifactId>pixels-spark</artifactId>
 	<version>0.1</version>
 	<packaging>jar</packaging>
     <groupId>io.pixelsdb</groupId>
-	<name>Pixels Flink RPC Source</name>
-	<url>https://flink.apache.org</url>
+	<name>Pixels Spark RPC Stream Table Source</name>
+	<url>https://spark.apache.org</url>
 	<parent>
 		<groupId>io.pixelsdb</groupId>
 		<artifactId>pixels</artifactId>
@@ -33,7 +33,8 @@ under the License.
 	</parent>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<flink.version>1.20.3</flink.version>
+		<spark.version>3.5.6</spark.version>
+		<spark.scala.binary.version>2.12</spark.scala.binary.version>
 		<target.java.version>1.8</target.java.version>
 		<maven.compiler.source>${target.java.version}</maven.compiler.source>
 		<maven.compiler.target>${target.java.version}</maven.compiler.target>
@@ -62,54 +63,22 @@ under the License.
             <version>${pixels.version}</version>
         </dependency>
 
-		<!-- This dependency is provided, because it should not be packaged into the JAR file. -->
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-streaming-java</artifactId>
-			<version>${flink.version}</version>
-			<scope>provided</scope>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-clients</artifactId>
-			<version>${flink.version}</version>
-			<scope>provided</scope>
-		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-slf4j-impl</artifactId>
-			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.slf4j</groupId>
 			<artifactId>slf4j-api</artifactId>
-			<scope>provided</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-api</artifactId>
-			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.apache.logging.log4j</groupId>
 			<artifactId>log4j-core</artifactId>
-			<scope>runtime</scope>
 		</dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.flink/flink-table -->
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-core</artifactId>
-            <version>${flink.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-runtime</artifactId>
-            <version>${flink.version}</version>
-            <scope>provided</scope>
-        </dependency>
 
 		<dependency>
 			<groupId>io.grpc</groupId>
@@ -123,23 +92,25 @@ under the License.
 			<groupId>io.grpc</groupId>
 			<artifactId>grpc-protobuf</artifactId>
 		</dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-test-utils</artifactId>
-            <version>${flink.version}</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-api-java</artifactId>
-            <version>${flink.version}</version>
-            <scope>provided</scope>
-        </dependency>
 		<dependency>
-			<groupId>org.apache.flink</groupId>
-			<artifactId>flink-table-planner-loader</artifactId>
-			<version>${flink.version}</version>
+			<groupId>io.grpc</groupId>
+			<artifactId>grpc-protobuf-lite</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.perfmark</groupId>
+			<artifactId>perfmark-api</artifactId>
+			<version>0.27.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.spark</groupId>
+			<artifactId>spark-sql_${spark.scala.binary.version}</artifactId>
+			<version>${spark.version}</version>
 			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.delta</groupId>
+			<artifactId>delta-spark_${spark.scala.binary.version}</artifactId>
+			<version>3.3.2</version>
 		</dependency>
 		<dependency>
 			<groupId>org.junit.jupiter</groupId>

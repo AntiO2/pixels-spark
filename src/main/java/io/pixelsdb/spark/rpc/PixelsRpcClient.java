@@ -1,10 +1,10 @@
-package io.pixelsdb.flink.source;
+package io.pixelsdb.spark.rpc;
 
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.internal.DnsNameResolverProvider;
 import io.pixelsdb.pixels.sink.PixelsPollingServiceGrpc;
 import io.pixelsdb.pixels.sink.SinkProto;
-import io.grpc.internal.DnsNameResolverProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +44,8 @@ public class PixelsRpcClient implements Closeable
         {
             SinkProto.PollResponse pollResponse = blockingStub.pollEvents(request);
             return pollResponse.getRecordsList();
-        } catch (Exception e)
+        }
+        catch (Exception e)
         {
             LOG.error("RPC call failed: {}", e.getMessage());
             throw e;
@@ -57,7 +58,8 @@ public class PixelsRpcClient implements Closeable
         try
         {
             channel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
-        } catch (InterruptedException e)
+        }
+        catch (InterruptedException e)
         {
             LOG.warn("Interrupted during shutdown", e);
             Thread.currentThread().interrupt();
