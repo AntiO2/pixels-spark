@@ -53,25 +53,55 @@ Pixels CDC merge 运行环境包括：
 
 ## 2. 导入 CSV 数据
 
-常见有两种输入路径：
+这一步把 `pixels-benchmark/Data_1x` 下的基准 CSV 文件导入为 Delta 表。
 
-1. 使用原生 Delta demo 数据做基础设施验证
-2. 使用 Pixels 管理的源表做 CDC merge 验证
+进入本步骤的表：
 
-对于 CDC merge 测试，源表应满足：
+- `customer`
+- `company`
+- `savingAccount`
+- `checkingAccount`
+- `transfer`
+- `checking`
+- `loanapps`
+- `loantrans`
 
-- 在 Pixels metadata service 中存在
-- 已定义主键
-- Pixels RPC 服务可以拉到记录
+明确不进入本步骤的文件：
 
-简单的 source 烟测：
+- `blocked_checking.csv`
+- `blocked_transfer.csv`
+
+相关文件：
+
+- DDL 模板：`pixels-benchmark/conf/ddl_deltalake.sql`
+- Spark SQL 导入模板：`pixels-benchmark/conf/load_data_deltalake.sql`
+- 可执行导入脚本：[scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
+
+示例命令：
 
 ```bash
-mvn -q -DskipTests \
-  -Dexec.mainClass=io.pixelsdb.spark.app.PixelsCustomerPullTest \
-  -Dexec.args="localhost 9091 pixels_bench savingaccount 0" \
-  org.codehaus.mojo:exec-maven-plugin:3.5.0:java
+./scripts/import-benchmark-csv-to-delta.sh \
+  /path/to/pixels-benchmark/Data_1x \
+  /tmp/pixels-benchmark-deltalake/data_1x \
+  local[1]
 ```
+
+导入完成后的预期结果：
+
+- 每张基准表对应一个 Delta 表目录
+- 每张表目录下都有 `_delta_log`
+- 导入后的行数与源 CSV 一致
+
+`Data_1x` 的已验证行数：
+
+- `customer`: `300000`
+- `company`: `2000`
+- `savingAccount`: `302000`
+- `checkingAccount`: `302000`
+- `transfer`: `6000000`
+- `checking`: `600000`
+- `loanapps`: `600000`
+- `loantrans`: `600000`
 
 ## 3. 版本管理与快速回滚
 

@@ -53,25 +53,55 @@ Make sure the external Delta infrastructure is already available before running 
 
 ## 2. Import CSV Data
 
-Use one of these two input paths:
+This step imports the benchmark CSV files from `pixels-benchmark/Data_1x` into Delta tables.
 
-1. A native Delta demo dataset for infrastructure validation
-2. A Pixels-managed source table for CDC merge validation
+Included tables:
 
-For CDC merge testing, the source table should:
+- `customer`
+- `company`
+- `savingAccount`
+- `checkingAccount`
+- `transfer`
+- `checking`
+- `loanapps`
+- `loantrans`
 
-- exist in the Pixels metadata service
-- have a defined primary key
-- produce records through the Pixels RPC service
+Excluded from this step:
 
-A simple source smoke test:
+- `blocked_checking.csv`
+- `blocked_transfer.csv`
+
+Reference files:
+
+- DDL template: `pixels-benchmark/conf/ddl_deltalake.sql`
+- Spark SQL load template: `pixels-benchmark/conf/load_data_deltalake.sql`
+- Executable import script: [scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
+
+Example import command:
 
 ```bash
-mvn -q -DskipTests \
-  -Dexec.mainClass=io.pixelsdb.spark.app.PixelsCustomerPullTest \
-  -Dexec.args="localhost 9091 pixels_bench savingaccount 0" \
-  org.codehaus.mojo:exec-maven-plugin:3.5.0:java
+./scripts/import-benchmark-csv-to-delta.sh \
+  /path/to/pixels-benchmark/Data_1x \
+  /tmp/pixels-benchmark-deltalake/data_1x \
+  local[1]
 ```
+
+Expected result:
+
+- one Delta table directory per benchmark table
+- a `_delta_log` directory under each table path
+- imported row counts consistent with the source CSV files
+
+Validated row counts for `Data_1x`:
+
+- `customer`: `300000`
+- `company`: `2000`
+- `savingAccount`: `302000`
+- `checkingAccount`: `302000`
+- `transfer`: `6000000`
+- `checking`: `600000`
+- `loanapps`: `600000`
+- `loantrans`: `600000`
 
 ## 3. Version Management and Fast Rollback
 
