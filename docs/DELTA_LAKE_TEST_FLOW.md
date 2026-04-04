@@ -1,136 +1,127 @@
-# Delta Lake 测试流程
+# Delta Lake Test Flow
 
-本文档参考：
+This document defines a repeatable test workflow for Delta Lake experiments around deployment, ingestion, merge, validation, benchmark runs, and query checks.
 
-- `/home/antio2/projects/retina-deltalake/README.md`
-- `/home/antio2/文档/note/数据系统/大数据与计算/数据湖仓/Lance/Lance测试流程.md`
+It is modeled after the existing Lance test flow used in the same research environment, but adapted to the Delta Lake stack used by `pixels-spark`.
 
-目标是为 Delta Lake 的功能、版本管理、流式更新、吞吐、新鲜度、AP 查询与资源使用测试提供一套统一流程。
-
-## overall workflow
+## Workflow
 
 ```mermaid
 flowchart TD
-    A[环境准备] --> C[导入 CSV 数据]
-    C --> D[版本管理 / 快速回滚]
-    D --> E[启动 Delta 基础设施]
-    E --> F[从 RPC 拉取数据并更新]
+    A[Environment Preparation] --> C[Import CSV Data]
+    C --> D[Version Management / Fast Rollback]
+    D --> E[Start Delta Infrastructure]
+    E --> F[Fetch from RPC and Update Delta]
 
-    %% 并行测试分支
-    F --> G[吞吐和新鲜度测试]
-    D --> H[AP 性能测试]
+    F --> G[Throughput and Freshness Tests]
+    D --> H[AP Query Performance Tests]
 
-    G --> I[搜集 CPU/内存使用数据]
+    G --> I[Collect CPU and Memory Metrics]
     H --> I
-    I -- 多次重复测试 --> D
+    I -- Repeat Test Rounds --> D
 ```
 
-## 1. 环境准备
+## 1. Environment Preparation
 
-需要准备两层环境：
+Prepare two layers:
 
-1. Delta Lake 基础设施
-   - MinIO
-   - Hive Metastore
-   - Trino
-   - 可选 Flink Delta writer
-2. Pixels CDC -> Spark merge 运行环境
-   - Java 17
-   - Spark 3.5.x
-   - `pixels-spark` shaded jar
-   - metadata service
-   - Pixels RPC service
+1. Delta infrastructure
+2. Pixels CDC merge runtime
 
-建议先完成：
+Delta infrastructure typically includes:
 
-```bash
-cd /home/antio2/projects/retina-deltalake
-./scripts/install-native.sh
-./scripts/build-job.sh
-./scripts/start-native.sh
-```
+- object storage
+- Hive Metastore
+- Trino
+- optional Flink Delta writer
 
-然后再准备 `pixels-spark`：
+Pixels CDC merge runtime includes:
+
+- Java 17
+- Spark 3.5.x
+- the shaded `pixels-spark` JAR
+- a Pixels RPC service
+- a Pixels metadata service
+
+Recommended first steps:
 
 ```bash
-cd /home/antio2/projects/pixels-spark
 ./scripts/build-package.sh
 ```
 
-## 2. 导入 CSV 数据
+Make sure the external Delta infrastructure is already available before running large-scale tests.
 
-如果是做 Delta Lake 基础验证，可以沿用 `retina-deltalake` 中的演示数据：
+## 2. Import CSV Data
 
-```bash
-cd /home/antio2/projects/retina-deltalake
-./scripts/reset-demo-data.sh
-./scripts/submit-flink-job.sh
-./scripts/register-table.sh
-```
+Use one of these two input paths:
 
-如果是做 Pixels CDC 驱动的 Delta merge 测试，则建议：
+1. A native Delta demo dataset for infrastructure validation
+2. A Pixels-managed source table for CDC merge validation
 
-1. 准备一张在 metadata service 中可见、并且主键已定义的源表
-2. 确认 Pixels RPC 服务能对这张表和目标 bucket 拉到 CDC 记录
-3. 用 `pixels-spark` 的 source smoke test 先验证是否有数据
+For CDC merge testing, the source table should:
 
-例如：
+- exist in the Pixels metadata service
+- have a defined primary key
+- produce records through the Pixels RPC service
+
+A simple source smoke test:
 
 ```bash
-cd /home/antio2/projects/pixels-spark
 mvn -q -DskipTests \
   -Dexec.mainClass=io.pixelsdb.spark.app.PixelsCustomerPullTest \
   -Dexec.args="localhost 9091 pixels_bench savingaccount 0" \
   org.codehaus.mojo:exec-maven-plugin:3.5.0:java
 ```
 
-## 3. 版本管理 / 快速回滚
+## 3. Version Management and Fast Rollback
 
-Delta Lake 的版本管理核心在 `_delta_log`。
+Delta Lake uses `_delta_log` for versioned table state.
 
-测试前建议始终保证目标 Delta 路径是干净的，避免混入历史批次。
+Before each experiment round:
 
-常见做法：
+- clean or rotate the target Delta path
+- clean or rotate the checkpoint directory
+- record the exact target path, checkpoint path, and run timestamp
 
-1. 本地测试：直接删目标路径和 checkpoint 路径
-2. MinIO / S3 测试：用对象存储命令做目录备份与恢复
-3. Delta 表验证：记录当前版本号，必要时用 time travel 或直接恢复对象目录
+Recommended practice:
 
-对于 `pixels-spark`，建议每轮实验都切换 checkpoint 目录，例如：
+- use a fresh checkpoint path for every benchmark round
+- use isolated Delta target paths for different scenarios
+
+Example:
 
 ```text
+/tmp/pixels-spark-savingaccount-delta-run1
+/tmp/pixels-spark-savingaccount-delta-run2
 /tmp/pixels-spark-savingaccount-ckpt-run1
 /tmp/pixels-spark-savingaccount-ckpt-run2
 ```
 
-## 4. 启动 Delta 基础设施
+## 4. Start Delta Infrastructure
 
-如果实验依赖 Trino / Hive Metastore 查询：
+Before running AP validation or cross-engine checks, confirm that the Delta infrastructure is running:
 
-```bash
-cd /home/antio2/projects/retina-deltalake
-./scripts/start-native.sh
-./scripts/status-native.sh
+- object storage
+- Hive Metastore
+- Trino
+
+Typical checks include:
+
+- storage endpoint reachable
+- metastore reachable
+- query engine reachable
+
+## 5. Fetch from RPC and Update Delta
+
+The main `pixels-spark` data path is:
+
+```text
+Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
 ```
 
-建议确认以下端口：
-
-- MinIO API: `127.0.0.1:9000`
-- MinIO Console: `127.0.0.1:9001`
-- Hive Metastore: `127.0.0.1:9083`
-- Flink UI: `127.0.0.1:8081`
-- Trino: `127.0.0.1:8080`
-
-## 5. 从 RPC 拉取数据并更新
-
-`pixels-spark` 的主链路是：
-
-`Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE`
-
-标准运行方式：
+Standard merge run:
 
 ```bash
-cd /home/antio2/projects/pixels-spark
 ./scripts/run-delta-merge.sh \
   --database pixels_bench \
   --table savingaccount \
@@ -144,39 +135,34 @@ cd /home/antio2/projects/pixels-spark
   --trigger-mode once
 ```
 
-默认 delete 语义是：
+Default delete behavior:
 
 - `hard delete`
 
-也就是：
+That means:
 
-- Delta 表 schema 与源 schema 保持一致
-- delete 命中后直接物理删除
+- the target Delta schema stays aligned with the source schema
+- matched delete events physically remove rows
 
-如果实验明确需要软删除，再显式指定：
+Use `--delete-mode soft` only when the test intentionally requires soft-delete semantics.
 
-```text
---delete-mode soft
-```
+## 6. Throughput and Freshness Tests
 
-## 6. 吞吐和新鲜度测试
+Key throughput measurements:
 
-吞吐测试重点关注：
+- elapsed time per merge run
+- records per second
+- run-to-run stability
 
-1. 单轮 merge 耗时
-2. records/sec
-3. 每轮新写入 / 更新 / 删除行数
+Key freshness measurements:
 
-新鲜度测试重点关注：
+- source event time
+- merge completion time
+- query visibility time
 
-1. 源事件产生时间
-2. Delta merge 完成时间
-3. Trino 查询可见时间
-
-当前仓库可直接用的脚本：
+Benchmark helper:
 
 ```bash
-cd /home/antio2/projects/pixels-spark
 ./scripts/benchmark-delta-merge.sh \
   3 \
   pixels_bench \
@@ -191,43 +177,39 @@ cd /home/antio2/projects/pixels-spark
   --trigger-mode once
 ```
 
-这会输出：
+The script reports:
 
 - `run=<n>`
 - `start_ts=<unix_ts>`
 - `elapsed_seconds=<n>`
 
-## 7. AP 性能测试
+## 7. AP Query Performance Tests
 
-AP 测试的目标不是 Spark merge，而是 Delta 表落地后对查询层的影响。
+AP tests focus on the Delta table after ingest or merge, not on the merge job itself.
 
-建议方法：
+Recommended method:
 
-1. 先固定一轮 Delta 数据导入 / merge
-2. 再用 Trino 对 Delta 表执行单查询测试
-3. 对不同版本或不同数据规模重复测试
+1. complete a Delta write or merge round
+2. query the resulting Delta table from the query engine
+3. repeat across data scales or versions
 
-对 `retina-deltalake` 示例，可先注册表再跑查询：
+Typical focus:
 
-```bash
-cd /home/antio2/projects/retina-deltalake
-./scripts/register-table.sh
-```
+- single-query latency
+- scan behavior after repeated merges
+- stability across repeated test rounds
 
-后续如需正式 AP benchmark，建议复用你现有的 Trino JDBC benchmark 工具链。
+## 8. CPU and Memory Collection
 
-## 8. 资源使用数据采集
-
-建议每轮实验都同步采：
+Collect at least:
 
 - CPU
-- RSS / heap
-- IO
-- 网络
-- Spark driver / executor 日志
-- Trino / HMS 日志
+- RSS or heap usage
+- disk I/O
+- Spark driver and executor logs
+- query-engine logs
 
-最小化方式：
+Minimal tools:
 
 ```bash
 top
@@ -235,22 +217,24 @@ htop
 pidstat -r -u -d 1
 ```
 
-如果要做正式实验，建议：
+For formal experiments, store:
 
-1. 固定采样间隔
-2. 每轮实验单独存日志
-3. 将运行参数、目标路径、checkpoint 路径、时间戳一起记录
+- run parameters
+- target path
+- checkpoint path
+- timestamps
+- system metrics
 
-## 9. 每轮实验后的检查项
+## 9. Validation Checklist After Each Run
 
-每一轮都建议至少验证：
+After every run, verify:
 
-1. Delta 表是否仍可读
-2. 主键是否重复
-3. 目标 schema 是否符合预期
-4. delete 语义是否符合当前模式
+1. the Delta table is readable
+2. primary keys are still unique
+3. target schema matches the intended mode
+4. delete behavior matches the configured mode
 
-当前仓库已有的验证脚本：
+Available helper scripts:
 
 ```bash
 ./scripts/preview-delta-table.sh /tmp/pixels-spark-savingaccount-delta 5 local[1]
@@ -261,26 +245,24 @@ pidstat -r -u -d 1
   /tmp/pixels-spark-savingaccount-ckpt
 ```
 
-判断标准：
+Primary validation rule:
 
-- `primary_keys` 不为空
-- `row_count == distinct_pk_count`
+```text
+row_count == distinct_pk_count
+```
 
-## 10. 推荐实验顺序
+## 10. Recommended Execution Order
 
-建议按下面顺序推进：
+1. verify infrastructure availability
+2. run a Pixels source smoke test
+3. run one Delta merge job
+4. validate primary-key uniqueness
+5. run repeated benchmark rounds
+6. run AP query checks
+7. collect CPU and memory data
+8. rotate or roll back target paths and checkpoints before the next round
 
-1. 跑原生 Delta 基础设施验证
-2. 跑 Pixels RPC source smoke test
-3. 跑一次 `Trigger.Once()` 的 Delta merge
-4. 做主键一致性校验
-5. 做 benchmark 重复运行
-6. 插入 Trino AP 查询
-7. 收集 CPU / 内存 / 日志
-8. 回滚 Delta 目标目录或切换 checkpoint，开始下一轮
+## 11. Related Documents
 
-## 11. 当前仓库中的文档分工
-
-- [README.md](/home/antio2/projects/pixels-spark/README.md)：`pixels-spark` 的构建、merge、脚本与验证说明
-- [DELTA_LAKE_NATIVE_DEPLOYMENT.md](/home/antio2/projects/pixels-spark/docs/DELTA_LAKE_NATIVE_DEPLOYMENT.md)：原生 Delta/Flink/Trino/MinIO 部署参考
-- [DELTA_LAKE_TEST_FLOW.md](/home/antio2/projects/pixels-spark/docs/DELTA_LAKE_TEST_FLOW.md)：Delta Lake 的完整测试流程
+- [Project README](../README.md)
+- [Native Delta Lake Deployment](DELTA_LAKE_NATIVE_DEPLOYMENT.md)
