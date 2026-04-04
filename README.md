@@ -13,6 +13,11 @@
 
 本文档按“另一台机器也能快速启动验证”的标准组织，默认目标是本地验证 `pixels_bench.savingaccount -> Delta`.
 
+补充文档：
+
+- [docs/DELTA_LAKE_NATIVE_DEPLOYMENT.md](/home/antio2/projects/pixels-spark/docs/DELTA_LAKE_NATIVE_DEPLOYMENT.md)
+- [docs/DELTA_LAKE_TEST_FLOW.md](/home/antio2/projects/pixels-spark/docs/DELTA_LAKE_TEST_FLOW.md)
+
 ## 1. 当前能力
 
 已经实现并实际验证过：
@@ -25,6 +30,7 @@
 6. `readStream -> foreachBatch -> Delta MERGE` 实际跑通
 7. 支持单列主键和复合主键生成 `MERGE ON`
 8. `DELETE` 事件默认按真删除处理
+9. 默认 `hard delete` 下，目标 Delta 表 schema 与源 schema 保持一致
 
 当前确认过的真实结果：
 
