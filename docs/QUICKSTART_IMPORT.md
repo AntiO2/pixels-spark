@@ -6,6 +6,8 @@ This document keeps only the shortest path:
 2. Re-import `sf10` into S3
 3. Re-register the tables in Trino
 4. Validate with Trino CLI
+5. Start CDC updates
+6. Open the monitor for overall CPU / memory / job status
 
 ## 1. Start the Base Services
 
@@ -140,3 +142,59 @@ Error getting snapshot for hybench_sf10.customer
 ```
 
 the Trino-side S3 / Delta read configuration is still not effective.
+
+## 6. Start CDC Updates
+
+Start the local dependency services first:
+
+```bash
+./scripts/start-local-cdc-stack.sh
+```
+
+Then start the full `sf10` CDC workload:
+
+```bash
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+This starts one Spark CDC job for each of:
+
+- `customer`
+- `company`
+- `savingaccount`
+- `checkingaccount`
+- `transfer`
+- `checking`
+- `loanapps`
+- `loantrans`
+
+## 7. Start Monitoring
+
+Start metric collection:
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+Start the web monitor:
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8084
+```
+
+The monitor reports:
+
+- dependency service status
+- per-table CDC job status
+- CPU / RSS / uptime for each Spark job
+- machine-wide `load1`
+- machine-wide used and available memory
+- disk usage for the filesystem under `/tmp`
+
+If you care about overall CPU and memory rather than just one job, look at the `System` section at the top of the page.

@@ -204,3 +204,100 @@ Then run the actual Spark job scripts, for example:
 ./scripts/run-import-hybench-sf10.sh
 ./scripts/run-cdc-hybench-sf10.sh
 ```
+
+## 8. Start CDC and Monitoring
+
+Start the local dependency stack first:
+
+```bash
+./scripts/start-local-cdc-stack.sh
+```
+
+This script checks and starts, when needed:
+
+- HMS
+- Trino
+- Pixels metadata
+- optional Pixels RPC
+- Spark History Server
+
+Start the full `sf10` CDC workload:
+
+```bash
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+This starts one independent Spark CDC job per table.
+
+Start metric collection:
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+Start the read-only monitoring page:
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+Default monitoring URL:
+
+```text
+http://127.0.0.1:8084
+```
+
+Raw JSON endpoint:
+
+```text
+http://127.0.0.1:8084/api/status
+```
+
+## 9. What the Monitor Shows
+
+The monitor shows two kinds of information.
+
+Service status:
+
+- HMS
+- Trino
+- Pixels Metadata
+- Pixels RPC
+- Spark History
+
+Job status:
+
+- per-table `running` / `stopped`
+- PID
+- per-job CPU%
+- per-job RSS memory
+- uptime
+- latest log summary
+
+Overall system metrics come from `collect-cdc-metrics.sh`:
+
+- `load1`
+- `mem_used_mb`
+- `mem_avail_mb`
+- `disk_used_pct`
+
+So the `System` panel at the top is machine-wide information, not only one Spark process.
+
+Metric file locations:
+
+- system CSV: `/tmp/hybench_sf10_cdc_metrics/system.csv`
+- per-table JSON: `/tmp/hybench_sf10_cdc_metrics/<table>.json`
+- per-table history CSV: `/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+Related logs:
+
+- CDC job logs: `/tmp/hybench_sf10_cdc_logs/<table>.log`
+- web monitor log: `/tmp/hybench_sf10_cdc_web.log`
+
+If you want a CLI view of whole-machine CPU and memory, you can also use:
+
+```bash
+top
+htop
+pidstat -r -u -d 1
+```

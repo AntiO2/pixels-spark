@@ -354,7 +354,75 @@ That means:
 
 Use `--delete-mode soft` only when the test intentionally requires soft-delete semantics.
 
-## 7. Throughput and Freshness Tests
+For continuous `sf10` CDC updates, use the controller scripts directly:
+
+```bash
+./scripts/start-local-cdc-stack.sh
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+The first one starts the required services. The second one starts one Spark CDC job per table.
+
+## 7. CDC Monitoring and System Metrics
+
+Start metric collection:
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+Start the web monitor:
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:8084
+```
+
+The monitor shows three classes of information:
+
+1. dependency service status
+2. per-table CDC job status
+3. overall system metrics
+
+Overall system metrics come from:
+
+- `/tmp/hybench_sf10_cdc_metrics/system.csv`
+
+Current sampled fields:
+
+- `load1`
+- `mem_used_mb`
+- `mem_avail_mb`
+- `disk_used_pct`
+
+Per-table job metrics come from:
+
+- `/tmp/hybench_sf10_cdc_metrics/<table>.json`
+- `/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+They include:
+
+- `status`
+- `pid`
+- `cpu`
+- `rss_kb`
+- `etimes`
+- `log_excerpt`
+
+If you want a CLI view of whole-machine CPU and memory, you can also use:
+
+```bash
+top
+htop
+pidstat -r -u -d 1
+```
+
+## 8. Throughput and Freshness Tests
 
 Key throughput measurements:
 
@@ -391,7 +459,7 @@ The script reports:
 - `start_ts=<unix_ts>`
 - `elapsed_seconds=<n>`
 
-## 8. AP Query Performance Tests
+## 9. AP Query Performance Tests
 
 AP tests focus on the Delta table after ingest or merge, not on the merge job itself.
 
@@ -407,7 +475,7 @@ Typical focus:
 - scan behavior after repeated merges
 - stability across repeated test rounds
 
-## 9. CPU and Memory Collection
+## 10. CPU and Memory Collection
 
 Collect at least:
 
@@ -433,7 +501,7 @@ For formal experiments, store:
 - timestamps
 - system metrics
 
-## 10. Validation Checklist After Each Run
+## 11. Validation Checklist After Each Run
 
 After every run, verify:
 
@@ -459,7 +527,7 @@ Primary validation rule:
 row_count == distinct_pk_count
 ```
 
-## 11. Recommended Execution Order
+## 12. Recommended Execution Order
 
 1. verify infrastructure availability
 2. run a Pixels source smoke test
@@ -470,7 +538,7 @@ row_count == distinct_pk_count
 7. collect CPU and memory data
 8. rotate or roll back target paths and checkpoints before the next round
 
-## 12. Related Documents
+## 13. Related Documents
 
 - [Project README](../README.md)
 - [Native Delta Lake Deployment](DELTA_LAKE_NATIVE_DEPLOYMENT.md)

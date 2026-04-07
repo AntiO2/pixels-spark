@@ -358,7 +358,75 @@ Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
 --delete-mode soft
 ```
 
-## 7. 吞吐和新鲜度测试
+如果要持续跑 `sf10` 全表 CDC update，推荐直接使用总控脚本：
+
+```bash
+./scripts/start-local-cdc-stack.sh
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+第一条用于拉起依赖服务，第二条用于为每张表启动一个独立的 Spark CDC 作业。
+
+## 7. CDC 监控与系统指标
+
+启动指标采集：
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+启动 Web 监控页：
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:8084
+```
+
+监控页展示三类信息：
+
+1. 依赖服务状态
+2. 每张表 CDC 作业状态
+3. 整体系统指标
+
+整体系统指标来自：
+
+- `/tmp/hybench_sf10_cdc_metrics/system.csv`
+
+当前采样字段包括：
+
+- `load1`
+- `mem_used_mb`
+- `mem_avail_mb`
+- `disk_used_pct`
+
+每张表的作业指标来自：
+
+- `/tmp/hybench_sf10_cdc_metrics/<table>.json`
+- `/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+其中包括：
+
+- `status`
+- `pid`
+- `cpu`
+- `rss_kb`
+- `etimes`
+- `log_excerpt`
+
+如果你希望从命令行看整机 CPU 和内存，也可以直接使用：
+
+```bash
+top
+htop
+pidstat -r -u -d 1
+```
+
+## 8. 吞吐和新鲜度测试
 
 吞吐测试重点关注：
 
@@ -395,7 +463,7 @@ benchmark 辅助脚本：
 - `start_ts=<unix_ts>`
 - `elapsed_seconds=<n>`
 
-## 8. AP 查询性能测试
+## 9. AP 查询性能测试
 
 AP 测试关注的是 Delta 表落地后的查询性能，而不是 merge 作业本身。
 
@@ -411,7 +479,7 @@ AP 测试关注的是 Delta 表落地后的查询性能，而不是 merge 作业
 - 多轮 merge 后的扫描行为
 - 多轮测试之间的稳定性
 
-## 9. CPU 与内存采集
+## 10. CPU 与内存采集
 
 至少采集：
 
@@ -437,7 +505,7 @@ pidstat -r -u -d 1
 - 时间戳
 - 系统指标
 
-## 10. 每轮运行后的校验清单
+## 11. 每轮运行后的校验清单
 
 每一轮之后至少验证：
 
@@ -463,7 +531,7 @@ pidstat -r -u -d 1
 row_count == distinct_pk_count
 ```
 
-## 11. 推荐执行顺序
+## 12. 推荐执行顺序
 
 1. 检查基础设施可用性
 2. 运行 Pixels source 烟测
@@ -474,7 +542,7 @@ row_count == distinct_pk_count
 7. 采集 CPU 和内存指标
 8. 在下一轮前轮换或回滚目标路径和 checkpoint
 
-## 12. 相关文档
+## 13. 相关文档
 
 - [项目 README](../README.zh-CN.md)
 - [原生 Delta Lake 部署](DELTA_LAKE_NATIVE_DEPLOYMENT.zh-CN.md)

@@ -204,3 +204,100 @@ source /home/ubuntu/disk1/opt/conf/pixels-delta-env.sh && export JAVA_HOME="$JAV
 ./scripts/run-import-hybench-sf10.sh
 ./scripts/run-cdc-hybench-sf10.sh
 ```
+
+## 8. 启动 CDC 与监控
+
+先启动本地依赖栈：
+
+```bash
+./scripts/start-local-cdc-stack.sh
+```
+
+这个脚本会检查并按需启动：
+
+- HMS
+- Trino
+- Pixels metadata
+- 可选的 Pixels RPC
+- Spark History Server
+
+启动 `sf10` 全表 CDC：
+
+```bash
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+这个脚本会为每张表启动一个独立的 Spark CDC 作业。
+
+启动指标采集：
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+启动只读监控页：
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+监控页默认地址：
+
+```text
+http://127.0.0.1:8084
+```
+
+Raw JSON 接口：
+
+```text
+http://127.0.0.1:8084/api/status
+```
+
+## 9. 监控里能看到什么
+
+监控页会展示两类信息。
+
+服务状态：
+
+- HMS
+- Trino
+- Pixels Metadata
+- Pixels RPC
+- Spark History
+
+作业状态：
+
+- 每张表的 `running` / `stopped`
+- PID
+- 单作业 CPU%
+- 单作业 RSS 内存
+- 运行时长
+- 最近一条日志摘要
+
+整体系统信息来自 `collect-cdc-metrics.sh` 采样：
+
+- `load1`
+- `mem_used_mb`
+- `mem_avail_mb`
+- `disk_used_pct`
+
+也就是监控页顶部的 `System` 区域显示的是整机概览，而不是单个 Spark 进程的局部信息。
+
+采样文件位置：
+
+- 系统总览 CSV：`/tmp/hybench_sf10_cdc_metrics/system.csv`
+- 单表 JSON：`/tmp/hybench_sf10_cdc_metrics/<table>.json`
+- 单表历史 CSV：`/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+相关日志位置：
+
+- CDC 作业日志：`/tmp/hybench_sf10_cdc_logs/<table>.log`
+- Web 监控日志：`/tmp/hybench_sf10_cdc_web.log`
+
+如果你希望看整机 CPU / 内存的命令行视角，也可以直接使用：
+
+```bash
+top
+htop
+pidstat -r -u -d 1
+```

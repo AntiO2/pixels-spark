@@ -6,6 +6,8 @@
 2. 重导 `sf10` 到 S3
 3. 在 Trino 中重新注册表
 4. 用 Trino CLI 查询验证
+5. 启动 CDC update
+6. 打开监控页查看整体 CPU / 内存 / 作业状态
 
 ## 1. 启动基础服务
 
@@ -140,3 +142,59 @@ Error getting snapshot for hybench_sf10.customer
 ```
 
 通常也是 Trino 侧的 S3 / Delta 读取配置还没生效。
+
+## 6. 启动 CDC update
+
+先启动本地依赖服务：
+
+```bash
+./scripts/start-local-cdc-stack.sh
+```
+
+再启动 `sf10` 全表 CDC：
+
+```bash
+./scripts/run-cdc-hybench-sf10.sh
+```
+
+这个脚本会为以下表各启动一个 Spark CDC 作业：
+
+- `customer`
+- `company`
+- `savingaccount`
+- `checkingaccount`
+- `transfer`
+- `checking`
+- `loanapps`
+- `loantrans`
+
+## 7. 启动监控
+
+启动指标采集：
+
+```bash
+./scripts/collect-cdc-metrics.sh
+```
+
+启动 Web 监控页：
+
+```bash
+python3 ./scripts/cdc_web_monitor.py
+```
+
+打开：
+
+```text
+http://127.0.0.1:8084
+```
+
+监控页会同时给出：
+
+- 依赖服务状态
+- 每张表 CDC 的运行状态
+- 每个 Spark 作业的 CPU / RSS / uptime
+- 整机 `load1`
+- 整机已用内存和可用内存
+- `/tmp` 所在磁盘使用率
+
+如果你关心整体 CPU / 内存，而不只是单个表进程，重点看监控页顶部的 `System` 区域。
