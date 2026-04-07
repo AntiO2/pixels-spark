@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.spark.sql.functions.col;
+import static org.apache.spark.sql.functions.hash;
+import static org.apache.spark.sql.functions.lit;
+import static org.apache.spark.sql.functions.pmod;
 import static org.apache.spark.sql.functions.row_number;
 
 public final class PixelsDeltaMergeJob
@@ -123,10 +126,12 @@ public final class PixelsDeltaMergeJob
             SparkSession spark = batch.sparkSession();
             StructType targetSchema = targetSchema(batch.schema(), options);
             ensureTargetTable(spark, targetSchema, options);
+            ensureTargetColumns(spark, targetSchema, options);
             validateTargetSchema(spark, targetSchema, options);
 
             List<String> primaryKeys = tableMetadata.getPrimaryKeyColumns();
-            Dataset<Row> latest = latestPerPrimaryKey(batch, primaryKeys).cache();
+            Dataset<Row> projectedBatch = withHashBucketColumn(batch, primaryKeys, options);
+            Dataset<Row> latest = latestPerPrimaryKey(projectedBatch, primaryKeys).cache();
 
             Dataset<Row> deletes = businessColumnsOnly(latest.filter(col(PixelsMetadataColumns.OP).equalTo("DELETE")));
             Dataset<Row> upserts = businessColumnsOnly(latest.filter(col(PixelsMetadataColumns.OP).notEqual("DELETE")));
@@ -208,6 +213,10 @@ public final class PixelsDeltaMergeJob
                 fields.add(field);
             }
         }
+        if (options.getHashBucketCount() > 0)
+        {
+            fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.BUCKET_ID, DataTypes.IntegerType, true));
+        }
         if (isSoftDelete(options))
         {
             fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.IS_DELETED, DataTypes.BooleanType, false));
@@ -288,7 +297,17 @@ public final class PixelsDeltaMergeJob
                 .write()
                 .format("delta")
                 .mode("overwrite")
+                .partitionBy(partitionColumns(options))
                 .save(options.getTargetPath());
+    }
+
+    private static String[] partitionColumns(PixelsDeltaMergeOptions options)
+    {
+        if (options.getHashBucketCount() > 0)
+        {
+            return new String[] {PixelsDeltaMergeColumns.BUCKET_ID};
+        }
+        return new String[0];
     }
 
     private static void validateTargetSchema(SparkSession spark, StructType expectedSchema, PixelsDeltaMergeOptions options)
@@ -331,5 +350,43 @@ public final class PixelsDeltaMergeJob
     private static boolean isSoftDelete(PixelsDeltaMergeOptions options)
     {
         return "soft".equalsIgnoreCase(options.getDeleteMode());
+    }
+
+    private static void ensureTargetColumns(SparkSession spark, StructType expectedSchema, PixelsDeltaMergeOptions options)
+    {
+        if (!DeltaTable.isDeltaTable(spark, options.getTargetPath()))
+        {
+            return;
+        }
+
+        StructType actualSchema = spark.read().format("delta").load(options.getTargetPath()).schema();
+        for (StructField expectedField : expectedSchema.fields())
+        {
+            if (findField(actualSchema, expectedField.name()) == null)
+            {
+                spark.sql("ALTER TABLE delta.`" + options.getTargetPath() + "` ADD COLUMNS ("
+                        + expectedField.name() + " " + expectedField.dataType().catalogString() + ")");
+            }
+        }
+    }
+
+    private static Dataset<Row> withHashBucketColumn(
+            Dataset<Row> batch,
+            List<String> primaryKeys,
+            PixelsDeltaMergeOptions options)
+    {
+        if (options.getHashBucketCount() <= 0)
+        {
+            return batch;
+        }
+
+        List<Column> pkColumns = new ArrayList<>(primaryKeys.size());
+        for (String primaryKey : primaryKeys)
+        {
+            pkColumns.add(col(primaryKey));
+        }
+
+        Column hashExpr = pmod(hash(pkColumns.toArray(new Column[0])), lit(options.getHashBucketCount()));
+        return batch.withColumn(PixelsDeltaMergeColumns.BUCKET_ID, hashExpr);
     }
 }

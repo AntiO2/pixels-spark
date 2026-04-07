@@ -24,6 +24,7 @@ public final class PixelsSparkConfig
     public static final String DELTA_TRIGGER_INTERVAL = "pixels.spark.delta.trigger.interval";
     public static final String DELTA_AUTO_CREATE = "pixels.spark.delta.auto-create";
     public static final String DELTA_DELETE_MODE = "pixels.spark.delta.delete.mode";
+    public static final String DELTA_HASH_BUCKET_COUNT = "pixels.spark.delta.hash-bucket.count";
     public static final String SPARK_MASTER = "pixels.spark.master";
 
     private static final PixelsSparkConfig INSTANCE = new PixelsSparkConfig();

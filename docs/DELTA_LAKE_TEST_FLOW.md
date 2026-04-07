@@ -76,6 +76,9 @@ Reference files:
 - DDL template: `pixels-benchmark/conf/ddl_deltalake.sql`
 - Spark SQL load template: `pixels-benchmark/conf/load_data_deltalake.sql`
 - Executable import script: [scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
+- S3 import script: [scripts/import-benchmark-csv-to-delta-s3.py](../scripts/import-benchmark-csv-to-delta-s3.py)
+- Project config file: [etc/pixels-spark.properties](../etc/pixels-spark.properties)
+- Trino Delta catalog template: [etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
 
 Example import command:
 
@@ -90,7 +93,83 @@ Expected result:
 
 - one Delta table directory per benchmark table
 - a `_delta_log` directory under each table path
+- a persistent `_pixels_bucket_id` column in every imported table
 - imported row counts consistent with the source CSV files
+
+The current import logic computes:
+
+```text
+_pixels_bucket_id = pmod(hash(pk), x)
+```
+
+Where:
+
+- `x` comes from `etc/pixels-spark.properties`
+- the property name is `pixels.spark.delta.hash-bucket.count`
+
+Before re-importing, confirm this setting:
+
+```properties
+pixels.spark.delta.hash-bucket.count=16
+```
+
+Example local re-import:
+
+```bash
+./scripts/import-benchmark-csv-to-delta.sh \
+  /path/to/pixels-benchmark/Data_1x \
+  /tmp/pixels-benchmark-deltalake/data_1x \
+  local[1]
+```
+
+Example single-table S3 re-import:
+
+```bash
+export PIXELS_SPARK_CONFIG=/home/ubuntu/disk1/projects/pixels-spark/etc/pixels-spark.properties
+
+"$SPARK_HOME/bin/spark-submit" \
+  --master local[4] \
+  --driver-memory 20g \
+  --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+  --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+  --conf spark.sql.shuffle.partitions=32 \
+  --conf spark.default.parallelism=32 \
+  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+  --conf spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.EnvironmentVariableCredentialsProvider \
+  --conf spark.hadoop.fs.s3a.endpoint=s3.us-east-2.amazonaws.com \
+  --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
+  --conf spark.hadoop.fs.s3a.path.style.access=false \
+  ./scripts/import-benchmark-csv-to-delta-s3.py \
+  /home/ubuntu/disk1/hybench_sf1000 \
+  s3a://home-zinuo/deltalake/hybench_sf1000 \
+  savingAccount
+```
+
+To re-import the full `sf1000` dataset:
+
+```bash
+./scripts/run-import-hybench-sf1000.sh
+```
+
+To re-import the full `sf10` dataset into S3:
+
+```bash
+./scripts/run-import-hybench-sf10.sh
+```
+
+You can also pass the source and target paths explicitly:
+
+```bash
+./scripts/run-import-hybench-sf10.sh \
+  /home/ubuntu/disk1/hybench_sf10 \
+  s3a://home-zinuo/deltalake/hybench_sf10
+```
+
+To override the hash-bucket count temporarily:
+
+```bash
+export PIXELS_IMPORT_HASH_BUCKET_COUNT=32
+```
 
 Validated row counts for `Data_1x`:
 
@@ -141,7 +220,106 @@ Typical checks include:
 - metastore reachable
 - query engine reachable
 
-## 5. Fetch from RPC and Update Delta
+If you re-import Delta tables, especially when you:
+
+- run an overwrite import
+- change the partition layout
+- change `_pixels_bucket_id`
+- switch to a new target table path
+
+you usually need to re-register the table metadata in Trino.
+
+## 5. Register Delta Tables in Trino
+
+Recommended schema:
+
+- `delta_lake.hybench_sf10`
+
+Before registering, confirm that the Trino `delta_lake` catalog:
+
+- has `delta.register-table-procedure.enabled=true`
+- can access Hive Metastore
+- can access S3
+
+Recommended template:
+
+- [etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
+
+If the current Trino `delta_lake.properties` does not include S3 settings, registration may fail with:
+
+```text
+No factory for location: s3://home-zinuo/deltalake/hybench_sf10/customer/_delta_log
+```
+
+This means the current Trino instance cannot read the Delta log on S3. In that case:
+
+- add S3 settings to the current `delta_lake.properties` and restart Trino
+- or start a temporary Trino instance with S3 enabled only for registration
+
+Example single-table registration:
+
+```bash
+/home/ubuntu/disk1/opt/trino-cli/trino \
+  --server http://127.0.0.1:8080 \
+  --execute "CREATE SCHEMA IF NOT EXISTS delta_lake.hybench_sf10;
+             DROP TABLE IF EXISTS delta_lake.hybench_sf10.customer;
+             CALL delta_lake.system.register_table(
+               schema_name => 'hybench_sf10',
+               table_name => 'customer',
+               table_location => 's3://home-zinuo/deltalake/hybench_sf10/customer'
+             )"
+```
+
+Example full `sf10` re-registration:
+
+```bash
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute "CREATE SCHEMA IF NOT EXISTS delta_lake.hybench_sf10"
+
+for table_name in customer company savingaccount checkingaccount transfer checking loanapps loantrans; do
+  /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+    --execute \"DROP TABLE IF EXISTS delta_lake.hybench_sf10.${table_name}\"
+done
+
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'customer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/customer')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'company', table_location => 's3://home-zinuo/deltalake/hybench_sf10/company')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingAccount')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingAccount')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'transfer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/transfer')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checking', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checking')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'loanapps', table_location => 's3://home-zinuo/deltalake/hybench_sf10/loanapps')\"
+/home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'loantrans', table_location => 's3://home-zinuo/deltalake/hybench_sf10/loantrans')\"
+```
+
+After registration:
+
+```bash
+/home/ubuntu/disk1/opt/trino-cli/trino \
+  --server http://127.0.0.1:8080 \
+  --execute "SHOW TABLES FROM delta_lake.hybench_sf10"
+
+/home/ubuntu/disk1/opt/trino-cli/trino \
+  --server http://127.0.0.1:8080 \
+  --execute "SELECT count(*) FROM delta_lake.hybench_sf10.customer"
+```
+
+Even if `SHOW TABLES FROM delta_lake.hybench_sf10` succeeds, queries may still fail with:
+
+```text
+Error getting snapshot for hybench_sf10.customer
+```
+
+That also indicates that the current Trino instance still lacks effective S3 / Delta read configuration.
+
+## 6. Fetch from RPC and Update Delta
 
 The main `pixels-spark` data path is:
 
@@ -176,7 +354,7 @@ That means:
 
 Use `--delete-mode soft` only when the test intentionally requires soft-delete semantics.
 
-## 6. Throughput and Freshness Tests
+## 7. Throughput and Freshness Tests
 
 Key throughput measurements:
 
@@ -213,7 +391,7 @@ The script reports:
 - `start_ts=<unix_ts>`
 - `elapsed_seconds=<n>`
 
-## 7. AP Query Performance Tests
+## 8. AP Query Performance Tests
 
 AP tests focus on the Delta table after ingest or merge, not on the merge job itself.
 
@@ -229,7 +407,7 @@ Typical focus:
 - scan behavior after repeated merges
 - stability across repeated test rounds
 
-## 8. CPU and Memory Collection
+## 9. CPU and Memory Collection
 
 Collect at least:
 
@@ -255,7 +433,7 @@ For formal experiments, store:
 - timestamps
 - system metrics
 
-## 9. Validation Checklist After Each Run
+## 10. Validation Checklist After Each Run
 
 After every run, verify:
 
@@ -281,7 +459,7 @@ Primary validation rule:
 row_count == distinct_pk_count
 ```
 
-## 10. Recommended Execution Order
+## 11. Recommended Execution Order
 
 1. verify infrastructure availability
 2. run a Pixels source smoke test
@@ -292,7 +470,9 @@ row_count == distinct_pk_count
 7. collect CPU and memory data
 8. rotate or roll back target paths and checkpoints before the next round
 
-## 11. Related Documents
+## 12. Related Documents
 
 - [Project README](../README.md)
 - [Native Delta Lake Deployment](DELTA_LAKE_NATIVE_DEPLOYMENT.md)
+- [Local Startup Commands](STARTUP_COMMANDS.md)
+- [Import Quickstart](QUICKSTART_IMPORT.md)

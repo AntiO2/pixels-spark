@@ -192,10 +192,19 @@ pixels.spark.delta.trigger.interval=0 seconds
 
 ## 文档
 
-- [原生 Delta Lake 部署](docs/DELTA_LAKE_NATIVE_DEPLOYMENT.zh-CN.md)
-- [Delta Lake 测试流程](docs/DELTA_LAKE_TEST_FLOW.zh-CN.md)
+English:
+
+- [Local Startup Commands](docs/STARTUP_COMMANDS.md)
+- [Delta Lake Import Quickstart](docs/QUICKSTART_IMPORT.md)
 - [Native Delta Lake Deployment](docs/DELTA_LAKE_NATIVE_DEPLOYMENT.md)
 - [Delta Lake Test Flow](docs/DELTA_LAKE_TEST_FLOW.md)
+
+简体中文:
+
+- [本地 Spark / Trino / HMS 启动命令](docs/STARTUP_COMMANDS.zh-CN.md)
+- [Delta Lake 导入快速指南](docs/QUICKSTART_IMPORT.zh-CN.md)
+- [原生 Delta Lake 部署](docs/DELTA_LAKE_NATIVE_DEPLOYMENT.zh-CN.md)
+- [Delta Lake 测试流程](docs/DELTA_LAKE_TEST_FLOW.zh-CN.md)
 
 ## 当前验证范围
 

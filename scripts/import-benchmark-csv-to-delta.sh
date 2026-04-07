@@ -5,10 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CSV_ROOT="${1:-/home/antio2/projects/pixels-benchmark/Data_1x}"
 DELTA_ROOT="${2:-/tmp/pixels-benchmark-deltalake/data_1x}"
 SPARK_MASTER="${3:-local[1]}"
+PIXELS_SPARK_CONFIG_FILE="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
 
 cd "${ROOT_DIR}"
 
 env JAVA_HOME="${JAVA_HOME:-/home/antio2/.sdkman/candidates/java/17.0.14-jbr}" \
+  PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG_FILE}" \
   SPARK_LOCAL_IP="${SPARK_LOCAL_IP:-127.0.0.1}" \
   SPARK_LOCAL_HOSTNAME="${SPARK_LOCAL_HOSTNAME:-localhost}" \
   MAVEN_OPTS="${MAVEN_OPTS:---add-opens=java.base/sun.nio.ch=ALL-UNNAMED}" \

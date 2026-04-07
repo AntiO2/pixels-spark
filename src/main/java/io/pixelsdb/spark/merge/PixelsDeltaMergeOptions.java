@@ -22,6 +22,7 @@ public class PixelsDeltaMergeOptions implements Serializable
     private final String triggerInterval;
     private final boolean autoCreateTable;
     private final String deleteMode;
+    private final int hashBucketCount;
 
     public PixelsDeltaMergeOptions(
             String rpcHost,
@@ -36,7 +37,8 @@ public class PixelsDeltaMergeOptions implements Serializable
             String triggerMode,
             String triggerInterval,
             boolean autoCreateTable,
-            String deleteMode)
+            String deleteMode,
+            int hashBucketCount)
     {
         this.rpcHost = rpcHost;
         this.rpcPort = rpcPort;
@@ -51,6 +53,7 @@ public class PixelsDeltaMergeOptions implements Serializable
         this.triggerInterval = triggerInterval;
         this.autoCreateTable = autoCreateTable;
         this.deleteMode = deleteMode;
+        this.hashBucketCount = hashBucketCount;
     }
 
     public String getRpcHost()
@@ -118,6 +121,11 @@ public class PixelsDeltaMergeOptions implements Serializable
         return deleteMode;
     }
 
+    public int getHashBucketCount()
+    {
+        return hashBucketCount;
+    }
+
     public static PixelsDeltaMergeOptions fromArguments(java.util.Map<String, String> args)
     {
         PixelsSparkConfig config = PixelsSparkConfig.instance();
@@ -157,7 +165,9 @@ public class PixelsDeltaMergeOptions implements Serializable
                 Boolean.parseBoolean(firstNonEmpty(args.get("auto-create-table"),
                         String.valueOf(config.getBooleanOrDefault(PixelsSparkConfig.DELTA_AUTO_CREATE, true)))),
                 firstNonEmpty(args.get("delete-mode"),
-                        config.getOrDefault(PixelsSparkConfig.DELTA_DELETE_MODE, "hard")));
+                        config.getOrDefault(PixelsSparkConfig.DELTA_DELETE_MODE, "hard")),
+                parseHashBucketCount(firstNonEmpty(args.get("hash-bucket-count"),
+                        config.get(PixelsSparkConfig.DELTA_HASH_BUCKET_COUNT))));
     }
 
     private static String require(java.util.Map<String, String> args, String key)
@@ -199,5 +209,19 @@ public class PixelsDeltaMergeOptions implements Serializable
             }
         }
         return result;
+    }
+
+    private static int parseHashBucketCount(String raw)
+    {
+        if (raw == null || raw.trim().isEmpty())
+        {
+            return 0;
+        }
+        int parsed = Integer.parseInt(raw.trim());
+        if (parsed < 0)
+        {
+            throw new IllegalArgumentException("hash-bucket-count must be >= 0");
+        }
+        return parsed;
     }
 }
