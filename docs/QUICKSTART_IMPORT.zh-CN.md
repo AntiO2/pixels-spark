@@ -51,11 +51,26 @@ s3.endpoint=https://s3.us-east-2.amazonaws.com
 
 - [etc/pixels-spark.properties](../etc/pixels-spark.properties)
 
-确认 bucket 数配置：
+说明：
+
+- 现在脚本侧和应用侧默认都读取这一个文件
+- `run-import-hybench-sf10.sh`、`run-import-hybench-sf1000.sh`、`run-cdc-hybench-sf10.sh`、`run-single-cdc-foreground.sh` 的默认参数都集中在这里
+- 不再建议把同一套参数分散写到多个 `.env` 脚本里
+
+确认 bucket 配置：
 
 ```properties
-pixels.spark.delta.hash-bucket.count=16
+pixels.spark.delta.enable-deletion-vectors=true
+pixels.spark.import.csv.chunk-rows=2560000
+pixels.spark.import.count-rows=false
 ```
+
+说明：
+
+- `pixels.spark.delta.hash-bucket.count` 已废弃，不再建议配置
+- `_pixels_bucket_id` 现在不再用 Spark `pmod(hash(pk), x)` 计算
+- 新的 bucket 定义来自 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num`
+- 导入和 CDC 都会按主键 canonical bytes -> `ByteString` -> `RetinaUtils` 的方式计算 bucket id，与 server 保持一致
 
 执行整库导入：
 
@@ -69,7 +84,28 @@ pixels.spark.delta.hash-bucket.count=16
 
 - 导入是 `overwrite`
 - 导入时会写入持久列 `_pixels_bucket_id`
-- 计算方式为 `pmod(hash(pk), x)`
+- bucket 计算方式与 server 保持一致，不再使用 Spark `hash()`
+- 新建表时会设置 `delta.enableDeletionVectors=true`
+- 默认不会先做 `count()`
+- 导入会按 `pixels.spark.import.csv.chunk-rows` 分块读取 CSV，再循环写入 Delta
+- CDC source 单批大小可通过 `pixels.spark.source.max-rows-per-batch`、`pixels.spark.source.max-wait-ms-per-batch`、`pixels.spark.source.empty-poll-sleep-ms` 控制
+
+如果你希望在创建表时就明确开启 DV，核心表属性是：
+
+```properties
+delta.enableDeletionVectors=true
+```
+
+在本项目里，推荐直接通过配置文件控制：
+
+```properties
+pixels.spark.delta.enable-deletion-vectors=true
+```
+
+这会在以下两类建表路径上生效：
+
+- CSV 导入建表
+- CDC 自动建表
 
 ## 3. 在 Trino 中重新注册表
 
@@ -143,6 +179,21 @@ Error getting snapshot for hybench_sf10.customer
 
 通常也是 Trino 侧的 S3 / Delta 读取配置还没生效。
 
+如果你要对已经存在的表补开 DV，可以执行：
+
+```bash
+/home/ubuntu/disk1/opt/trino-cli/trino \
+  --server http://127.0.0.1:8080 \
+  --execute "ALTER TABLE delta_lake.hybench_sf10.customer SET PROPERTIES delta.enableDeletionVectors = true"
+```
+
+或者在 Spark SQL 中执行：
+
+```sql
+ALTER TABLE delta.`s3a://home-zinuo/deltalake/hybench_sf10/customer`
+SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
+```
+
 ## 6. 启动 CDC update
 
 先启动本地依赖服务：
@@ -167,6 +218,24 @@ Error getting snapshot for hybench_sf10.customer
 - `checking`
 - `loanapps`
 - `loantrans`
+
+如果只想验证 source 拉取而不实际执行 Delta merge，可用：
+
+```bash
+./scripts/run-delta-merge.sh \
+  --database pixels_bench \
+  --table savingaccount \
+  --rpc-host localhost \
+  --rpc-port 9091 \
+  --metadata-host localhost \
+  --metadata-port 18888 \
+  --mode polling \
+  --trigger-mode processing-time \
+  --trigger-interval "10 seconds" \
+  --sink-mode noop
+```
+
+默认会按 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num` 拉全量 source bucket，不需要手工传 `--buckets`。
 
 ## 7. 启动监控
 

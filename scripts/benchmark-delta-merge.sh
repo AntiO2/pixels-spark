@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 10 ]]; then
-  echo "Usage: $0 <runs> <database> <table> <buckets> <rpc-host> <rpc-port> <metadata-host> <metadata-port> <target-path> <checkpoint-base> [extra args...]" >&2
+if [[ $# -lt 9 ]]; then
+  echo "Usage: $0 <runs> <database> <table> <rpc-host> <rpc-port> <metadata-host> <metadata-port> <target-path> <checkpoint-base> [extra args...]" >&2
   exit 1
 fi
 
@@ -10,14 +10,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS="$1"
 DATABASE="$2"
 TABLE="$3"
-BUCKETS="$4"
-RPC_HOST="$5"
-RPC_PORT="$6"
-METADATA_HOST="$7"
-METADATA_PORT="$8"
-TARGET_PATH="$9"
-CHECKPOINT_BASE="${10}"
-shift 10
+RPC_HOST="$4"
+RPC_PORT="$5"
+METADATA_HOST="$6"
+METADATA_PORT="$7"
+TARGET_PATH="$8"
+CHECKPOINT_BASE="$9"
+shift 9
 
 for ((i=1; i<=RUNS; i++)); do
   CHECKPOINT_LOCATION="${CHECKPOINT_BASE}/run-${i}"
@@ -26,7 +25,6 @@ for ((i=1; i<=RUNS; i++)); do
   "${ROOT_DIR}/scripts/run-delta-merge.sh" \
     --database "${DATABASE}" \
     --table "${TABLE}" \
-    --buckets "${BUCKETS}" \
     --rpc-host "${RPC_HOST}" \
     --rpc-port "${RPC_PORT}" \
     --metadata-host "${METADATA_HOST}" \

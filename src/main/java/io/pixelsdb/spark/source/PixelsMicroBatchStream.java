@@ -5,12 +5,15 @@ import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 import org.apache.spark.sql.connector.read.streaming.MicroBatchStream;
 import org.apache.spark.sql.connector.read.streaming.Offset;
 import org.apache.spark.sql.types.StructType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PixelsMicroBatchStream implements MicroBatchStream
 {
+    private static final Logger LOG = LoggerFactory.getLogger(PixelsMicroBatchStream.class);
     private final StructType schema;
     private final Map<String, String> options;
     private final AtomicLong nextOffset = new AtomicLong(0L);
@@ -36,9 +39,30 @@ public class PixelsMicroBatchStream implements MicroBatchStream
         {
             return new InputPartition[0];
         }
-        return new InputPartition[] {
-                new PixelsInputPartition(schema, options, endValue)
-        };
+        PixelsSourceOptions sourceOptions = new PixelsSourceOptions(options);
+        if (sourceOptions.getBuckets().isEmpty())
+        {
+            LOG.info("planInputPartitions table={}.{} start={} end={} partitions=1 mode=unbucketed",
+                    sourceOptions.getDatabase(), sourceOptions.getTable(), startValue, endValue);
+            return new InputPartition[] {
+                    new PixelsInputPartition(schema, options, endValue)
+            };
+        }
+
+        InputPartition[] partitions = new InputPartition[sourceOptions.getBuckets().size()];
+        for (int i = 0; i < sourceOptions.getBuckets().size(); i++)
+        {
+            Integer bucketId = sourceOptions.getBuckets().get(i);
+            partitions[i] = new PixelsInputPartition(schema, options, endValue, bucketId);
+        }
+        LOG.info("planInputPartitions table={}.{} start={} end={} partitions={} buckets={}",
+                sourceOptions.getDatabase(),
+                sourceOptions.getTable(),
+                startValue,
+                endValue,
+                partitions.length,
+                sourceOptions.getBuckets());
+        return partitions;
     }
 
     @Override

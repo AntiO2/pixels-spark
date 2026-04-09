@@ -174,4 +174,11 @@ replay_pid*
 .history
 .ionide
 
+
+__pycache__
+.codex
+.codex/
+profiles/*.html
+data/hybench/*/resource/*.csv
+
 # End of https://www.toptal.com/developers/gitignore/api/intellij,java,linux,visualstudiocode

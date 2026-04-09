@@ -2,40 +2,27 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE_DIR="/tmp/hybench_sf10_cdc_state"
-LOG_DIR="/tmp/hybench_sf10_cdc_logs"
-CKPT_ROOT="/tmp/hybench_sf10_cdc_ckpt"
-DEFAULT_ENV_FILE="${ROOT_DIR}/scripts/hybench-sf10-cdc.env"
+export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
+source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 
-if [[ -n "${CDC_ENV_FILE:-}" ]]; then
-  source "${CDC_ENV_FILE}"
-elif [[ -f "${DEFAULT_ENV_FILE}" ]]; then
-  source "${DEFAULT_ENV_FILE}"
-fi
+STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)}"
+LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)}"
+CKPT_ROOT="${CKPT_ROOT:-$(pixels_get_property pixels.cdc.checkpoint-root /home/ubuntu/disk1/tmp/hybench_sf10_cdc_ckpt)}"
+SPARK_EVENTS_DIR="${SPARK_EVENTS_DIR:-$(pixels_get_property pixels.spark.event-log.dir /home/ubuntu/disk1/tmp/spark-events)}"
+TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.spark.delta.target.path s3a://home-zinuo/deltalake/hybench_sf10)}"
+DATABASE="${DATABASE:-$(pixels_get_property pixels.cdc.database pixels_bench)}"
+RPC_HOST="${RPC_HOST:-$(pixels_get_property pixels.spark.rpc.host 127.0.0.1)}"
+RPC_PORT="${RPC_PORT:-$(pixels_get_property pixels.spark.rpc.port 9091)}"
+METADATA_HOST="${METADATA_HOST:-$(pixels_get_property pixels.spark.metadata.host 127.0.0.1)}"
+METADATA_PORT="${METADATA_PORT:-$(pixels_get_property pixels.spark.metadata.port 18888)}"
+SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[2])}"
+TRIGGER_MODE="${TRIGGER_MODE:-$(pixels_get_property pixels.spark.delta.trigger.mode processing-time)}"
+TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-$(pixels_get_property pixels.spark.delta.trigger.interval 10 seconds)}"
+DELETE_MODE="${DELETE_MODE:-$(pixels_get_property pixels.spark.delta.delete.mode hard)}"
+TABLES=()
+pixels_split_csv_property "$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)" TABLES
 
-TARGET_ROOT="${TARGET_ROOT:-s3a://home-zinuo/deltalake/hybench_sf10}"
-DATABASE="${DATABASE:-pixels_bench}"
-BUCKETS="${BUCKETS:-0,1,2,3}"
-RPC_HOST="${RPC_HOST:-127.0.0.1}"
-RPC_PORT="${RPC_PORT:-9091}"
-METADATA_HOST="${METADATA_HOST:-127.0.0.1}"
-METADATA_PORT="${METADATA_PORT:-18888}"
-SPARK_MASTER="${SPARK_MASTER:-local[2]}"
-TRIGGER_MODE="${TRIGGER_MODE:-processing-time}"
-TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-10 seconds}"
-DELETE_MODE="${DELETE_MODE:-hard}"
-TABLES=(
-  customer
-  company
-  savingaccount
-  checkingaccount
-  transfer
-  checking
-  loanapps
-  loantrans
-)
-
-mkdir -p "${STATE_DIR}" "${LOG_DIR}" "${CKPT_ROOT}" "/tmp/spark-events"
+mkdir -p "${STATE_DIR}" "${LOG_DIR}" "${CKPT_ROOT}" "${SPARK_EVENTS_DIR}"
 
 source /home/ubuntu/disk1/opt/conf/pixels-delta-env.sh
 export JAVA_HOME="${JAVA17_HOME}"
@@ -76,15 +63,7 @@ start_table() {
   fi
 
   log "start table=${table_name} target=${TARGET_ROOT}/${table_name}"
-  if [[ -n "${CDC_ENV_FILE:-}" ]]; then
-    CDC_ENV_FILE="${CDC_ENV_FILE}" \
-      "${ROOT_DIR}/scripts/start-single-cdc-job.sh" "${table_name}" >/dev/null
-  elif [[ -f "${DEFAULT_ENV_FILE}" ]]; then
-    CDC_ENV_FILE="${DEFAULT_ENV_FILE}" \
-      "${ROOT_DIR}/scripts/start-single-cdc-job.sh" "${table_name}" >/dev/null
-  else
-    "${ROOT_DIR}/scripts/start-single-cdc-job.sh" "${table_name}" >/dev/null
-  fi
+  "${ROOT_DIR}/scripts/start-single-cdc-job.sh" "${table_name}" >/dev/null
   log "started table=${table_name} pid=$(cat "${pid_file}") log=${LOG_DIR}/${table_name}.log"
 }
 

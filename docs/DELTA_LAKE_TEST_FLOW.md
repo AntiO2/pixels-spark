@@ -76,7 +76,7 @@ Reference files:
 - DDL template: `pixels-benchmark/conf/ddl_deltalake.sql`
 - Spark SQL load template: `pixels-benchmark/conf/load_data_deltalake.sql`
 - Executable import script: [scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
-- S3 import script: [scripts/import-benchmark-csv-to-delta-s3.py](../scripts/import-benchmark-csv-to-delta-s3.py)
+- Java import app: [src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java](../src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java)
 - Project config file: [etc/pixels-spark.properties](../etc/pixels-spark.properties)
 - Trino Delta catalog template: [etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
 
@@ -96,21 +96,25 @@ Expected result:
 - a persistent `_pixels_bucket_id` column in every imported table
 - imported row counts consistent with the source CSV files
 
-The current import logic computes:
+The current import logic computes `_pixels_bucket_id`, but it no longer uses Spark `hash()`:
 
 ```text
-_pixels_bucket_id = pmod(hash(pk), x)
+primary-key canonical bytes -> ByteString -> RetinaUtils.getBucketIdFromByteBuffer(...)
 ```
 
 Where:
 
-- `x` comes from `etc/pixels-spark.properties`
-- the property name is `pixels.spark.delta.hash-bucket.count`
+- `pixels.spark.delta.hash-bucket.count` is deprecated
+- the authoritative bucket-count setting now comes from `$PIXELS_HOME/etc/pixels.properties`
+- the effective property is `node.bucket.num`
+- both import and CDC use the same bucket calculation path as the server
 
-Before re-importing, confirm this setting:
+Before re-importing, confirm these settings:
 
 ```properties
-pixels.spark.delta.hash-bucket.count=16
+pixels.spark.delta.enable-deletion-vectors=true
+pixels.spark.import.csv.chunk-rows=2560000
+pixels.spark.import.count-rows=false
 ```
 
 Example local re-import:
@@ -139,9 +143,11 @@ export PIXELS_SPARK_CONFIG=/home/ubuntu/disk1/projects/pixels-spark/etc/pixels-s
   --conf spark.hadoop.fs.s3a.endpoint=s3.us-east-2.amazonaws.com \
   --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
   --conf spark.hadoop.fs.s3a.path.style.access=false \
-  ./scripts/import-benchmark-csv-to-delta-s3.py \
+  --class io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp \
+  ./target/pixels-spark-0.1.jar \
   /home/ubuntu/disk1/hybench_sf1000 \
   s3a://home-zinuo/deltalake/hybench_sf1000 \
+  local[4] \
   savingAccount
 ```
 
@@ -165,10 +171,38 @@ You can also pass the source and target paths explicitly:
   s3a://home-zinuo/deltalake/hybench_sf10
 ```
 
-To override the hash-bucket count temporarily:
+If you want Deletion Vectors enabled at table-creation time, the core Delta table property is:
 
-```bash
-export PIXELS_IMPORT_HASH_BUCKET_COUNT=32
+```properties
+delta.enableDeletionVectors=true
+```
+
+In this project, it is controlled by:
+
+```properties
+pixels.spark.delta.enable-deletion-vectors=true
+```
+
+It applies to both:
+
+- CSV-import table creation
+- CDC auto-create table creation
+
+The current import path does not run a full-table `count()` by default.
+
+For large CSV files, import reads the source in chunks controlled by:
+
+```properties
+pixels.spark.import.csv.chunk-rows=2560000
+```
+
+and writes those chunks to Delta in a loop, avoiding an extra full-table `repartition`.
+
+For an existing table, you can also run:
+
+```sql
+ALTER TABLE delta.`s3a://home-zinuo/deltalake/hybench_sf10/customer`
+SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
 ```
 
 Validated row counts for `Data_1x`:
@@ -333,7 +367,6 @@ Standard merge run:
 ./scripts/run-delta-merge.sh \
   --database pixels_bench \
   --table savingaccount \
-  --buckets 0 \
   --rpc-host localhost \
   --rpc-port 9091 \
   --metadata-host localhost \
@@ -342,6 +375,35 @@ Standard merge run:
   --checkpoint-location /tmp/pixels-spark-savingaccount-ckpt \
   --trigger-mode once
 ```
+
+`sink-mode` now supports two modes:
+
+- `delta`
+  - the default mode
+  - runs the normal Delta `MERGE`
+- `noop`
+  - pulls from the source and executes the current Spark batch pipeline
+  - does not create a Delta table
+  - does not validate the target schema
+  - does not execute the actual `MERGE`
+
+Use this when you want to validate polling and batch sizing only:
+
+```bash
+./scripts/run-delta-merge.sh \
+  --database pixels_bench \
+  --table savingaccount \
+  --rpc-host localhost \
+  --rpc-port 9091 \
+  --metadata-host localhost \
+  --metadata-port 18888 \
+  --mode polling \
+  --trigger-mode processing-time \
+  --trigger-interval "10 seconds" \
+  --sink-mode noop
+```
+
+Bucket selection is automatic in CDC mode. The source pulls all buckets defined by `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`; you should not pass `--buckets` manually.
 
 Default delete behavior:
 
@@ -362,6 +424,37 @@ For continuous `sf10` CDC updates, use the controller scripts directly:
 ```
 
 The first one starts the required services. The second one starts one Spark CDC job per table.
+
+### 6.1 Control Source Batch Size
+
+The source now keeps calling `pollEvents()` inside one micro-batch until either of these conditions is met:
+
+- the accumulated record count reaches `pixels.spark.source.max-rows-per-batch`
+- no new data arrives for `pixels.spark.source.max-wait-ms-per-batch` milliseconds
+
+Between empty polls, the reader sleeps for `pixels.spark.source.empty-poll-sleep-ms` to avoid busy looping.
+
+Recommended config location:
+
+- [etc/pixels-spark.properties](../etc/pixels-spark.properties)
+
+Settings:
+
+```properties
+pixels.spark.source.max-rows-per-batch=100000
+pixels.spark.source.max-wait-ms-per-batch=1000
+pixels.spark.source.empty-poll-sleep-ms=100
+```
+
+Semantics:
+
+- `max-rows-per-batch`
+  - target batch size in rows
+- `max-wait-ms-per-batch`
+  - idle timeout
+  - the timer is reset whenever a poll returns new data
+- `empty-poll-sleep-ms`
+  - sleep interval between empty polls
 
 ## 7. CDC Monitoring and System Metrics
 
@@ -392,6 +485,7 @@ The monitor shows three classes of information:
 Overall system metrics come from:
 
 - `/tmp/hybench_sf10_cdc_metrics/system.csv`
+- `/home/ubuntu/disk1/projects/pixels-spark/data/hybench/sf10/resource/resource_cdc.csv`
 
 Current sampled fields:
 
@@ -399,6 +493,20 @@ Current sampled fields:
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+
+The resource CSV also provides a JVM-oriented summary similar to `resource_iceberg.csv`:
+
+- `time`
+- `cpu`
+- `jvm_heap`
+- `jvm_managed`
+- `jvm_direct`
+- `jvm_noheap`
+
+You can change its output location with:
+
+- `pixels.cdc.resource-dir`
+- `pixels.cdc.resource-file`
 
 Per-table job metrics come from:
 

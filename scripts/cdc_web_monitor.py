@@ -8,9 +8,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-STATE_DIR = Path("/tmp/hybench_sf10_cdc_state")
-LOG_DIR = Path("/tmp/hybench_sf10_cdc_logs")
-METRICS_DIR = Path("/tmp/hybench_sf10_cdc_metrics")
+def load_properties(path: Path) -> dict:
+    props = {}
+    if not path.is_file():
+        return props
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        props[key.strip()] = value.strip()
+    return props
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CONFIG_PATH = Path(os.environ.get("PIXELS_SPARK_CONFIG", ROOT_DIR / "etc" / "pixels-spark.properties"))
+PROPS = load_properties(CONFIG_PATH)
+STATE_DIR = Path(PROPS.get("pixels.cdc.state-dir", "/home/ubuntu/disk1/tmp/hybench_sf10_cdc_state"))
+LOG_DIR = Path(PROPS.get("pixels.cdc.log-dir", "/home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs"))
+METRICS_DIR = Path(PROPS.get("pixels.cdc.metrics-dir", "/home/ubuntu/disk1/tmp/hybench_sf10_cdc_metrics"))
 PORT = int(os.environ.get("CDC_WEB_MONITOR_PORT", "8084"))
 TABLES = [
     "customer",

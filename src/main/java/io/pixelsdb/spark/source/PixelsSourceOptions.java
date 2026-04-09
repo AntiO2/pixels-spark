@@ -18,6 +18,9 @@ public class PixelsSourceOptions implements Serializable
     public static final String BUCKETS = "pixels.buckets";
     public static final String METADATA_HOST = "metadata.host";
     public static final String METADATA_PORT = "metadata.port";
+    public static final String MAX_ROWS_PER_BATCH = "pixels.maxRowsPerBatch";
+    public static final String MAX_WAIT_MS_PER_BATCH = "pixels.maxWaitMsPerBatch";
+    public static final String EMPTY_POLL_SLEEP_MS = "pixels.emptyPollSleepMs";
 
     private final String host;
     private final int port;
@@ -26,6 +29,9 @@ public class PixelsSourceOptions implements Serializable
     private final List<Integer> buckets;
     private final String metadataHost;
     private final Integer metadataPort;
+    private final int maxRowsPerBatch;
+    private final long maxWaitMsPerBatch;
+    private final long emptyPollSleepMs;
 
     public PixelsSourceOptions(CaseInsensitiveStringMap options)
     {
@@ -40,10 +46,16 @@ public class PixelsSourceOptions implements Serializable
                 String.valueOf(config.getIntOrDefault(PixelsSparkConfig.RPC_PORT, 9091))));
         this.database = require(options, DATABASE);
         this.table = require(options, TABLE);
-        this.buckets = parseBuckets(options.get(BUCKETS));
+        this.buckets = parseBuckets(options.get(BUCKETS), config);
         this.metadataHost = firstNonEmpty(options.get(METADATA_HOST), config.get(PixelsSparkConfig.METADATA_HOST));
         String metadataPortValue = firstNonEmpty(options.get(METADATA_PORT), config.get(PixelsSparkConfig.METADATA_PORT));
         this.metadataPort = metadataPortValue != null ? Integer.parseInt(metadataPortValue) : null;
+        this.maxRowsPerBatch = Math.max(1, Integer.parseInt(firstNonEmpty(options.get(MAX_ROWS_PER_BATCH),
+                String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_MAX_ROWS_PER_BATCH, 100000)))));
+        this.maxWaitMsPerBatch = Math.max(0L, Long.parseLong(firstNonEmpty(options.get(MAX_WAIT_MS_PER_BATCH),
+                String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_MAX_WAIT_MS_PER_BATCH, 1000)))));
+        this.emptyPollSleepMs = Math.max(0L, Long.parseLong(firstNonEmpty(options.get(EMPTY_POLL_SLEEP_MS),
+                String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_EMPTY_POLL_SLEEP_MS, 100)))));
     }
 
     public String getHost()
@@ -81,6 +93,21 @@ public class PixelsSourceOptions implements Serializable
         return metadataPort;
     }
 
+    public int getMaxRowsPerBatch()
+    {
+        return maxRowsPerBatch;
+    }
+
+    public long getMaxWaitMsPerBatch()
+    {
+        return maxWaitMsPerBatch;
+    }
+
+    public long getEmptyPollSleepMs()
+    {
+        return emptyPollSleepMs;
+    }
+
     private static String require(Map<String, String> options, String key)
     {
         String value = options.get(key);
@@ -104,11 +131,22 @@ public class PixelsSourceOptions implements Serializable
         return null;
     }
 
-    private static List<Integer> parseBuckets(String buckets)
+    private static List<Integer> parseBuckets(String buckets, PixelsSparkConfig config)
     {
         if (buckets == null || buckets.trim().isEmpty())
         {
-            return Collections.emptyList();
+            int bucketNum = config.getIntOrDefault("node.bucket.num", 0);
+            if (bucketNum <= 0)
+            {
+                return Collections.emptyList();
+            }
+
+            List<Integer> allBuckets = new ArrayList<>(bucketNum);
+            for (int bucketId = 0; bucketId < bucketNum; bucketId++)
+            {
+                allBuckets.add(bucketId);
+            }
+            return allBuckets;
         }
 
         List<Integer> result = new ArrayList<>();

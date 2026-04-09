@@ -3,10 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPT_ROOT="/home/ubuntu/disk1/opt"
-RUN_DIR="/tmp/hybench_sf10_cdc_state"
-LOG_DIR="/tmp/hybench_sf10_cdc_logs"
-METRICS_DIR="/tmp/hybench_sf10_cdc_metrics"
-SPARK_EVENTS_DIR="/tmp/spark-events"
+export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
+source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
+
+RUN_DIR="${RUN_DIR:-$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)}"
+LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)}"
+METRICS_DIR="${METRICS_DIR:-$(pixels_get_property pixels.cdc.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_metrics)}"
+SPARK_EVENTS_DIR="${SPARK_EVENTS_DIR:-$(pixels_get_property pixels.spark.event-log.dir /home/ubuntu/disk1/tmp/spark-events)}"
 PIXELS_HOME_DEFAULT="${OPT_ROOT}/pixels"
 PIXELS_SINK_HOME_DEFAULT="${OPT_ROOT}/pixels-sink"
 

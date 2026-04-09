@@ -8,15 +8,11 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TABLE_NAME="$1"
-STATE_DIR="/tmp/hybench_sf10_cdc_state"
-LOG_DIR="/tmp/hybench_sf10_cdc_logs"
-DEFAULT_ENV_FILE="${ROOT_DIR}/scripts/hybench-sf10-cdc.env"
+export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
+source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 
-if [[ -n "${CDC_ENV_FILE:-}" ]]; then
-  source "${CDC_ENV_FILE}"
-elif [[ -f "${DEFAULT_ENV_FILE}" ]]; then
-  source "${DEFAULT_ENV_FILE}"
-fi
+STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)}"
+LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)}"
 
 PID_FILE="${STATE_DIR}/${TABLE_NAME}.pid"
 LOG_FILE="${LOG_DIR}/${TABLE_NAME}.log"
@@ -39,9 +35,11 @@ systemd-run \
   --unit "${UNIT_NAME}" \
   --same-dir \
   --collect \
+  --setenv=PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG}" \
   --property=WorkingDirectory="${ROOT_DIR}" \
   --property=StandardOutput=append:"${LOG_FILE}" \
   --property=StandardError=append:"${LOG_FILE}" \
+  ${SINK_MODE:+--setenv=SINK_MODE="${SINK_MODE}"} \
   "${ROOT_DIR}/scripts/run-single-cdc-foreground.sh" "${TABLE_NAME}" >/dev/null
 
 for _ in $(seq 1 20); do

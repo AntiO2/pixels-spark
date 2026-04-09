@@ -1,6 +1,7 @@
 package io.pixelsdb.spark.source;
 
 import io.pixelsdb.pixels.common.metadata.domain.Column;
+import io.pixelsdb.spark.merge.PixelsDeltaMergeColumns;
 import io.pixelsdb.spark.metadata.PixelsTableMetadata;
 import io.pixelsdb.spark.metadata.PixelsTableMetadataRegistry;
 import org.apache.spark.sql.types.DataTypes;
@@ -22,7 +23,7 @@ public final class PixelsMetadataSchemaLoader
         PixelsTableMetadata tableMetadata = PixelsTableMetadataRegistry.get(options)
                 .getTableMetadata(options.getDatabase(), options.getTable());
         List<Column> columns = tableMetadata.getColumns();
-        List<StructField> fields = new ArrayList<>(columns.size() + 4);
+        List<StructField> fields = new ArrayList<>(columns.size() + 5);
         for (Column column : columns)
         {
             fields.add(DataTypes.createStructField(
@@ -31,6 +32,11 @@ public final class PixelsMetadataSchemaLoader
                     true,
                     Metadata.empty()));
         }
+        fields.add(DataTypes.createStructField(
+                PixelsDeltaMergeColumns.BUCKET_ID,
+                DataTypes.IntegerType,
+                false,
+                Metadata.empty()));
         fields.add(DataTypes.createStructField(PixelsMetadataColumns.OP, DataTypes.StringType, true, Metadata.empty()));
         fields.add(DataTypes.createStructField(PixelsMetadataColumns.TXN_ID, DataTypes.StringType, true, Metadata.empty()));
         fields.add(DataTypes.createStructField(PixelsMetadataColumns.TOTAL_ORDER, DataTypes.LongType, true, Metadata.empty()));

@@ -17,6 +17,8 @@ import org.apache.spark.sql.streaming.Trigger;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.DataTypes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -25,13 +27,13 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.spark.sql.functions.col;
-import static org.apache.spark.sql.functions.hash;
-import static org.apache.spark.sql.functions.lit;
-import static org.apache.spark.sql.functions.pmod;
 import static org.apache.spark.sql.functions.row_number;
 
 public final class PixelsDeltaMergeJob
 {
+    private static final String DELTA_ENABLE_DELETION_VECTORS_PROPERTY = "delta.enableDeletionVectors";
+    private static final Logger LOG = LoggerFactory.getLogger(PixelsDeltaMergeJob.class);
+
     private PixelsDeltaMergeJob()
     {
     }
@@ -55,6 +57,11 @@ public final class PixelsDeltaMergeJob
                 .trigger(buildTrigger(options))
                 .foreachBatch(new MergeForeachBatch(options))
                 .start();
+    }
+
+    public static void processBatch(Dataset<Row> batch, Long batchId, PixelsDeltaMergeOptions options)
+    {
+        new MergeForeachBatch(options).call(batch, batchId);
     }
 
     private static Trigger buildTrigger(PixelsDeltaMergeOptions options)
@@ -124,13 +131,21 @@ public final class PixelsDeltaMergeJob
             }
 
             SparkSession spark = batch.sparkSession();
+            List<String> primaryKeys = tableMetadata.getPrimaryKeyColumns();
+            Dataset<Row> projectedBatch = batch;
+            if (options.isNoopSinkMode())
+            {
+                LOG.info("sink-mode=noop batchId={} table={}.{} partitions={}",
+                        batchId, options.getDatabase(), options.getTable(), projectedBatch.rdd().getNumPartitions());
+                return;
+            }
+
             StructType targetSchema = targetSchema(batch.schema(), options);
             ensureTargetTable(spark, targetSchema, options);
+            ensureTargetTableProperties(spark, options);
             ensureTargetColumns(spark, targetSchema, options);
             validateTargetSchema(spark, targetSchema, options);
 
-            List<String> primaryKeys = tableMetadata.getPrimaryKeyColumns();
-            Dataset<Row> projectedBatch = withHashBucketColumn(batch, primaryKeys, options);
             Dataset<Row> latest = latestPerPrimaryKey(projectedBatch, primaryKeys).cache();
 
             Dataset<Row> deletes = businessColumnsOnly(latest.filter(col(PixelsMetadataColumns.OP).equalTo("DELETE")));
@@ -213,10 +228,6 @@ public final class PixelsDeltaMergeJob
                 fields.add(field);
             }
         }
-        if (options.getHashBucketCount() > 0)
-        {
-            fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.BUCKET_ID, DataTypes.IntegerType, true));
-        }
         if (isSoftDelete(options))
         {
             fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.IS_DELETED, DataTypes.BooleanType, false));
@@ -279,6 +290,14 @@ public final class PixelsDeltaMergeJob
             String primaryKey = primaryKeys.get(i);
             builder.append("t.").append(primaryKey).append(" <=> s.").append(primaryKey);
         }
+        if (builder.length() > 0)
+        {
+            builder.append(" AND ");
+        }
+        builder.append("t.")
+                .append(PixelsDeltaMergeColumns.BUCKET_ID)
+                .append(" <=> s.")
+                .append(PixelsDeltaMergeColumns.BUCKET_ID);
         return builder.toString();
     }
 
@@ -297,17 +316,26 @@ public final class PixelsDeltaMergeJob
                 .write()
                 .format("delta")
                 .mode("overwrite")
+                .option(DELTA_ENABLE_DELETION_VECTORS_PROPERTY, String.valueOf(options.isEnableDeletionVectors()))
                 .partitionBy(partitionColumns(options))
                 .save(options.getTargetPath());
     }
 
+    private static void ensureTargetTableProperties(SparkSession spark, PixelsDeltaMergeOptions options)
+    {
+        if (!DeltaTable.isDeltaTable(spark, options.getTargetPath()))
+        {
+            return;
+        }
+
+        spark.sql("ALTER TABLE delta.`" + options.getTargetPath() + "` SET TBLPROPERTIES ("
+                + "'" + DELTA_ENABLE_DELETION_VECTORS_PROPERTY + "'='"
+                + String.valueOf(options.isEnableDeletionVectors()) + "')");
+    }
+
     private static String[] partitionColumns(PixelsDeltaMergeOptions options)
     {
-        if (options.getHashBucketCount() > 0)
-        {
-            return new String[] {PixelsDeltaMergeColumns.BUCKET_ID};
-        }
-        return new String[0];
+        return new String[] {PixelsDeltaMergeColumns.BUCKET_ID};
     }
 
     private static void validateTargetSchema(SparkSession spark, StructType expectedSchema, PixelsDeltaMergeOptions options)
@@ -368,25 +396,5 @@ public final class PixelsDeltaMergeJob
                         + expectedField.name() + " " + expectedField.dataType().catalogString() + ")");
             }
         }
-    }
-
-    private static Dataset<Row> withHashBucketColumn(
-            Dataset<Row> batch,
-            List<String> primaryKeys,
-            PixelsDeltaMergeOptions options)
-    {
-        if (options.getHashBucketCount() <= 0)
-        {
-            return batch;
-        }
-
-        List<Column> pkColumns = new ArrayList<>(primaryKeys.size());
-        for (String primaryKey : primaryKeys)
-        {
-            pkColumns.add(col(primaryKey));
-        }
-
-        Column hashExpr = pmod(hash(pkColumns.toArray(new Column[0])), lit(options.getHashBucketCount()));
-        return batch.withColumn(PixelsDeltaMergeColumns.BUCKET_ID, hashExpr);
     }
 }

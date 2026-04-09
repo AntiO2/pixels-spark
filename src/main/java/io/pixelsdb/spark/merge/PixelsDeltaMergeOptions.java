@@ -18,11 +18,13 @@ public class PixelsDeltaMergeOptions implements Serializable
     private final List<Integer> buckets;
     private final String targetPath;
     private final String checkpointLocation;
+    private final String mode;
     private final String triggerMode;
     private final String triggerInterval;
+    private final String sinkMode;
     private final boolean autoCreateTable;
     private final String deleteMode;
-    private final int hashBucketCount;
+    private final boolean enableDeletionVectors;
 
     public PixelsDeltaMergeOptions(
             String rpcHost,
@@ -34,11 +36,13 @@ public class PixelsDeltaMergeOptions implements Serializable
             List<Integer> buckets,
             String targetPath,
             String checkpointLocation,
+            String mode,
             String triggerMode,
             String triggerInterval,
+            String sinkMode,
             boolean autoCreateTable,
             String deleteMode,
-            int hashBucketCount)
+            boolean enableDeletionVectors)
     {
         this.rpcHost = rpcHost;
         this.rpcPort = rpcPort;
@@ -49,11 +53,13 @@ public class PixelsDeltaMergeOptions implements Serializable
         this.buckets = buckets == null ? Collections.<Integer>emptyList() : new ArrayList<>(buckets);
         this.targetPath = targetPath;
         this.checkpointLocation = checkpointLocation;
+        this.mode = normalizeMode(mode);
         this.triggerMode = triggerMode;
         this.triggerInterval = triggerInterval;
+        this.sinkMode = normalizeSinkMode(sinkMode);
         this.autoCreateTable = autoCreateTable;
         this.deleteMode = deleteMode;
-        this.hashBucketCount = hashBucketCount;
+        this.enableDeletionVectors = enableDeletionVectors;
     }
 
     public String getRpcHost()
@@ -101,6 +107,21 @@ public class PixelsDeltaMergeOptions implements Serializable
         return checkpointLocation;
     }
 
+    public String getMode()
+    {
+        return mode;
+    }
+
+    public boolean isPollingMode()
+    {
+        return "polling".equalsIgnoreCase(mode);
+    }
+
+    public boolean isStreamingMode()
+    {
+        return "streaming".equalsIgnoreCase(mode);
+    }
+
     public String getTriggerInterval()
     {
         return triggerInterval;
@@ -116,14 +137,24 @@ public class PixelsDeltaMergeOptions implements Serializable
         return autoCreateTable;
     }
 
+    public String getSinkMode()
+    {
+        return sinkMode;
+    }
+
+    public boolean isNoopSinkMode()
+    {
+        return "noop".equalsIgnoreCase(sinkMode);
+    }
+
     public String getDeleteMode()
     {
         return deleteMode;
     }
 
-    public int getHashBucketCount()
+    public boolean isEnableDeletionVectors()
     {
-        return hashBucketCount;
+        return enableDeletionVectors;
     }
 
     public static PixelsDeltaMergeOptions fromArguments(java.util.Map<String, String> args)
@@ -135,12 +166,18 @@ public class PixelsDeltaMergeOptions implements Serializable
         String checkpointLocation = firstNonEmpty(
                 args.get("checkpoint-location"),
                 config.get(PixelsSparkConfig.DELTA_CHECKPOINT_LOCATION));
+        String mode = firstNonEmpty(
+                args.get("mode"),
+                config.getOrDefault(PixelsSparkConfig.DELTA_MODE, "polling"));
+        String sinkMode = firstNonEmpty(
+                args.get("sink-mode"),
+                config.getOrDefault(PixelsSparkConfig.DELTA_SINK_MODE, "delta"));
 
-        if (targetPath == null)
+        if (!"noop".equalsIgnoreCase(sinkMode) && targetPath == null)
         {
             throw new IllegalArgumentException("Missing required argument: --target-path");
         }
-        if (checkpointLocation == null)
+        if ("streaming".equalsIgnoreCase(mode) && checkpointLocation == null)
         {
             throw new IllegalArgumentException("Missing required argument: --checkpoint-location");
         }
@@ -158,16 +195,19 @@ public class PixelsDeltaMergeOptions implements Serializable
                 parseBuckets(args.get("buckets")),
                 targetPath,
                 checkpointLocation,
+                mode,
                 firstNonEmpty(args.get("trigger-mode"),
                         config.getOrDefault(PixelsSparkConfig.DELTA_TRIGGER_MODE, "once")),
                 firstNonEmpty(args.get("trigger-interval"),
                         config.getOrDefault(PixelsSparkConfig.DELTA_TRIGGER_INTERVAL, "0 seconds")),
+                sinkMode,
                 Boolean.parseBoolean(firstNonEmpty(args.get("auto-create-table"),
                         String.valueOf(config.getBooleanOrDefault(PixelsSparkConfig.DELTA_AUTO_CREATE, true)))),
                 firstNonEmpty(args.get("delete-mode"),
                         config.getOrDefault(PixelsSparkConfig.DELTA_DELETE_MODE, "hard")),
-                parseHashBucketCount(firstNonEmpty(args.get("hash-bucket-count"),
-                        config.get(PixelsSparkConfig.DELTA_HASH_BUCKET_COUNT))));
+                Boolean.parseBoolean(firstNonEmpty(args.get("enable-deletion-vectors"),
+                        String.valueOf(config.getBooleanOrDefault(
+                                PixelsSparkConfig.DELTA_ENABLE_DELETION_VECTORS, true)))));
     }
 
     private static String require(java.util.Map<String, String> args, String key)
@@ -211,17 +251,23 @@ public class PixelsDeltaMergeOptions implements Serializable
         return result;
     }
 
-    private static int parseHashBucketCount(String raw)
+    private static String normalizeSinkMode(String raw)
     {
-        if (raw == null || raw.trim().isEmpty())
+        String value = firstNonEmpty(raw, "delta");
+        if (!"delta".equalsIgnoreCase(value) && !"noop".equalsIgnoreCase(value))
         {
-            return 0;
+            throw new IllegalArgumentException("sink-mode must be one of: delta, noop");
         }
-        int parsed = Integer.parseInt(raw.trim());
-        if (parsed < 0)
+        return value.toLowerCase();
+    }
+
+    private static String normalizeMode(String raw)
+    {
+        String value = firstNonEmpty(raw, "polling");
+        if (!"polling".equalsIgnoreCase(value) && !"streaming".equalsIgnoreCase(value))
         {
-            throw new IllegalArgumentException("hash-bucket-count must be >= 0");
+            throw new IllegalArgumentException("mode must be one of: polling, streaming");
         }
-        return parsed;
+        return value.toLowerCase();
     }
 }

@@ -76,7 +76,7 @@ Pixels CDC merge 运行环境包括：
 - DDL 模板：`pixels-benchmark/conf/ddl_deltalake.sql`
 - Spark SQL 导入模板：`pixels-benchmark/conf/load_data_deltalake.sql`
 - 可执行导入脚本：[scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
-- S3 导入脚本：[scripts/import-benchmark-csv-to-delta-s3.py](../scripts/import-benchmark-csv-to-delta-s3.py)
+- Java 导入程序：[src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java](../src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java)
 - 项目配置文件：[etc/pixels-spark.properties](../etc/pixels-spark.properties)
 - Trino Delta catalog 模板：[etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
 
@@ -96,21 +96,25 @@ Pixels CDC merge 运行环境包括：
 - 每张表都包含持久列 `_pixels_bucket_id`
 - 导入后的行数与源 CSV 一致
 
-当前导入逻辑会按主键计算：
+当前导入逻辑会按主键计算 `_pixels_bucket_id`，但已经不再使用 Spark `hash()`：
 
 ```text
-_pixels_bucket_id = pmod(hash(pk), x)
+primary-key canonical bytes -> ByteString -> RetinaUtils.getBucketIdFromByteBuffer(...)
 ```
 
 其中：
 
-- `x` 来自 `etc/pixels-spark.properties`
-- 配置项为 `pixels.spark.delta.hash-bucket.count`
+- `pixels.spark.delta.hash-bucket.count` 已废弃
+- 新的 bucket 数配置来自 `$PIXELS_HOME/etc/pixels.properties`
+- 实际配置项是 `node.bucket.num`
+- 导入和 CDC 都与 server 使用同一套 bucket 计算方式
 
-重新导入数据前，建议先确认这个配置值：
+重新导入数据前，建议先确认这些配置：
 
 ```properties
-pixels.spark.delta.hash-bucket.count=16
+pixels.spark.delta.enable-deletion-vectors=true
+pixels.spark.import.csv.chunk-rows=2560000
+pixels.spark.import.count-rows=false
 ```
 
 重新导入到本地路径示例：
@@ -139,9 +143,11 @@ export PIXELS_SPARK_CONFIG=/home/ubuntu/disk1/projects/pixels-spark/etc/pixels-s
   --conf spark.hadoop.fs.s3a.endpoint=s3.us-east-2.amazonaws.com \
   --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
   --conf spark.hadoop.fs.s3a.path.style.access=false \
-  ./scripts/import-benchmark-csv-to-delta-s3.py \
+  --class io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp \
+  ./target/pixels-spark-0.1.jar \
   /home/ubuntu/disk1/hybench_sf1000 \
   s3a://home-zinuo/deltalake/hybench_sf1000 \
+  local[4] \
   savingAccount
 ```
 
@@ -165,10 +171,38 @@ export PIXELS_SPARK_CONFIG=/home/ubuntu/disk1/projects/pixels-spark/etc/pixels-s
   s3a://home-zinuo/deltalake/hybench_sf10
 ```
 
-如需临时覆盖配置文件里的 bucket 数，也可以单独指定：
+如果希望在建表时就启用 Deletion Vectors，核心 Delta 表属性是：
 
-```bash
-export PIXELS_IMPORT_HASH_BUCKET_COUNT=32
+```properties
+delta.enableDeletionVectors=true
+```
+
+本项目通过下面这个配置项控制：
+
+```properties
+pixels.spark.delta.enable-deletion-vectors=true
+```
+
+它会在两类建表路径上生效：
+
+- CSV 导入建表
+- CDC 自动建表
+
+当前导入逻辑默认不会先执行全表 `count()`。
+
+对于大文件，CSV 导入会按：
+
+```properties
+pixels.spark.import.csv.chunk-rows=2560000
+```
+
+进行分块读取，再循环写入 Delta，以避免额外的全量 `repartition`。
+
+对于已经存在的表，也可以补充执行：
+
+```sql
+ALTER TABLE delta.`s3a://home-zinuo/deltalake/hybench_sf10/customer`
+SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
 ```
 
 `Data_1x` 的已验证行数：
@@ -333,7 +367,6 @@ Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
 ./scripts/run-delta-merge.sh \
   --database pixels_bench \
   --table savingaccount \
-  --buckets 0 \
   --rpc-host localhost \
   --rpc-port 9091 \
   --metadata-host localhost \
@@ -342,6 +375,35 @@ Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
   --checkpoint-location /tmp/pixels-spark-savingaccount-ckpt \
   --trigger-mode once
 ```
+
+`sink-mode` 现在支持两种模式：
+
+- `delta`
+  - 默认模式
+  - 正常执行 Delta `MERGE`
+- `noop`
+  - 只拉取 source 并完成当前批次的 Spark 处理链路
+  - 不建表
+  - 不做 schema 校验
+  - 不执行实际 `MERGE`
+
+只验证拉取与批次大小时，可以这样跑：
+
+```bash
+./scripts/run-delta-merge.sh \
+  --database pixels_bench \
+  --table savingaccount \
+  --rpc-host localhost \
+  --rpc-port 9091 \
+  --metadata-host localhost \
+  --metadata-port 18888 \
+  --mode polling \
+  --trigger-mode processing-time \
+  --trigger-interval "10 seconds" \
+  --sink-mode noop
+```
+
+CDC 模式下 bucket 选择现在是自动的。source 会按 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num` 拉全量 bucket，不需要手工传 `--buckets`。
 
 默认 delete 行为为：
 
@@ -366,6 +428,37 @@ Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
 ```
 
 第一条用于拉起依赖服务，第二条用于为每张表启动一个独立的 Spark CDC 作业。
+
+### 6.1 控制 source 单批大小
+
+当前 source 支持在一个微批里循环 `pollEvents()`，直到满足以下任一条件：
+
+- 累计记录数达到 `pixels.spark.source.max-rows-per-batch`
+- 连续 `pixels.spark.source.max-wait-ms-per-batch` 毫秒没有新数据
+
+另外，连续空 poll 之间会 sleep `pixels.spark.source.empty-poll-sleep-ms`，避免空转。
+
+推荐配置位置：
+
+- [etc/pixels-spark.properties](../etc/pixels-spark.properties)
+
+配置项：
+
+```properties
+pixels.spark.source.max-rows-per-batch=100000
+pixels.spark.source.max-wait-ms-per-batch=1000
+pixels.spark.source.empty-poll-sleep-ms=100
+```
+
+语义说明：
+
+- `max-rows-per-batch`
+  - 单批目标行数
+- `max-wait-ms-per-batch`
+  - 空闲超时
+  - 一旦 poll 到新数据，等待时间会重置
+- `empty-poll-sleep-ms`
+  - 空批轮询间隔
 
 ## 7. CDC 监控与系统指标
 
@@ -396,6 +489,7 @@ http://127.0.0.1:8084
 整体系统指标来自：
 
 - `/tmp/hybench_sf10_cdc_metrics/system.csv`
+- `/home/ubuntu/disk1/projects/pixels-spark/data/hybench/sf10/resource/resource_cdc.csv`
 
 当前采样字段包括：
 
@@ -403,6 +497,20 @@ http://127.0.0.1:8084
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+
+资源 CSV 额外提供一份更接近 `resource_iceberg.csv` 的 JVM 汇总格式：
+
+- `time`
+- `cpu`
+- `jvm_heap`
+- `jvm_managed`
+- `jvm_direct`
+- `jvm_noheap`
+
+如果要调整输出位置，可以修改：
+
+- `pixels.cdc.resource-dir`
+- `pixels.cdc.resource-file`
 
 每张表的作业指标来自：
 

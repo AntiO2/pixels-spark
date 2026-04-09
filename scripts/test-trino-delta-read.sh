@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
+source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
+
 OPT_ROOT=/home/ubuntu/disk1/opt
 TRINO_HOME="$OPT_ROOT/trino-server-466"
 TRINO_CLI="$OPT_ROOT/trino-cli/trino"
 METASTORE_START="$OPT_ROOT/run/start-metastore.sh"
-TEST_ETC=/tmp/trino-readtest-etc
-TEST_DATA=/tmp/trino-readtest-data
-TEST_LOG=/tmp/trino-readtest.log
-TRINO_PID_FILE=/tmp/trino-readtest.pid
+READTEST_ROOT="${READTEST_ROOT:-$(pixels_get_property pixels.trino.readtest.root /home/ubuntu/disk1/tmp/trino-readtest)}"
+TEST_ETC="${READTEST_ROOT}/etc"
+TEST_DATA="${READTEST_ROOT}/data"
+TEST_LOG="${READTEST_ROOT}/trino-readtest.log"
+TRINO_PID_FILE="${READTEST_ROOT}/trino-readtest.pid"
 SCHEMA=hybench_sf10_readtest
 TABLES=(
   customer
   company
-  savingAccount
-  checkingAccount
+  savingaccount
+  checkingaccount
   transfer
   checking
   loanapps

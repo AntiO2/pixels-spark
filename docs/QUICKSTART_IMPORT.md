@@ -51,11 +51,26 @@ Project configuration:
 
 - [etc/pixels-spark.properties](../etc/pixels-spark.properties)
 
-Confirm the bucket-count setting:
+Notes:
+
+- both shell scripts and application code now read this same file by default
+- defaults for `run-import-hybench-sf10.sh`, `run-import-hybench-sf1000.sh`, `run-cdc-hybench-sf10.sh`, and `run-single-cdc-foreground.sh` are centralized here
+- avoid splitting the same operational settings across multiple `.env` files
+
+Confirm the import-related settings:
 
 ```properties
-pixels.spark.delta.hash-bucket.count=16
+pixels.spark.delta.enable-deletion-vectors=true
+pixels.spark.import.csv.chunk-rows=2560000
+pixels.spark.import.count-rows=false
 ```
+
+Notes:
+
+- `pixels.spark.delta.hash-bucket.count` is deprecated and should no longer be configured
+- `_pixels_bucket_id` is no longer computed with Spark `pmod(hash(pk), x)`
+- the authoritative bucket configuration now comes from `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`
+- both import and CDC compute bucket ids from canonical primary-key bytes -> `ByteString` -> `RetinaUtils`, matching the server
 
 Run the full import:
 
@@ -69,7 +84,28 @@ Notes:
 
 - the import uses `overwrite`
 - the import writes a persistent `_pixels_bucket_id` column
-- the value is computed as `pmod(hash(pk), x)`
+- the bucket value is computed with the same server-side bucket algorithm, not Spark `hash()`
+- new tables are created with `delta.enableDeletionVectors=true`
+- imports do not run `count()` by default
+- CSV data is read in chunks controlled by `pixels.spark.import.csv.chunk-rows`, then written to Delta chunk by chunk
+- CDC source batch sizing can be controlled through `pixels.spark.source.max-rows-per-batch`, `pixels.spark.source.max-wait-ms-per-batch`, and `pixels.spark.source.empty-poll-sleep-ms`
+
+If you want DV enabled at table-creation time, the core Delta table property is:
+
+```properties
+delta.enableDeletionVectors=true
+```
+
+In this project, the recommended switch is:
+
+```properties
+pixels.spark.delta.enable-deletion-vectors=true
+```
+
+This applies to both:
+
+- CSV-import table creation
+- CDC auto-create table creation
 
 ## 3. Re-register the Tables in Trino
 
@@ -143,6 +179,21 @@ Error getting snapshot for hybench_sf10.customer
 
 the Trino-side S3 / Delta read configuration is still not effective.
 
+If you need to enable DV on an existing table, you can run:
+
+```bash
+/home/ubuntu/disk1/opt/trino-cli/trino \
+  --server http://127.0.0.1:8080 \
+  --execute "ALTER TABLE delta_lake.hybench_sf10.customer SET PROPERTIES delta.enableDeletionVectors = true"
+```
+
+Or in Spark SQL:
+
+```sql
+ALTER TABLE delta.`s3a://home-zinuo/deltalake/hybench_sf10/customer`
+SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
+```
+
 ## 6. Start CDC Updates
 
 Start the local dependency services first:
@@ -167,6 +218,24 @@ This starts one Spark CDC job for each of:
 - `checking`
 - `loanapps`
 - `loantrans`
+
+If you only want to validate source polling without executing the Delta merge, run:
+
+```bash
+./scripts/run-delta-merge.sh \
+  --database pixels_bench \
+  --table savingaccount \
+  --rpc-host localhost \
+  --rpc-port 9091 \
+  --metadata-host localhost \
+  --metadata-port 18888 \
+  --mode polling \
+  --trigger-mode processing-time \
+  --trigger-interval "10 seconds" \
+  --sink-mode noop
+```
+
+By default, CDC pulls all source buckets defined by `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`; do not pass `--buckets` manually.
 
 ## 7. Start Monitoring
 

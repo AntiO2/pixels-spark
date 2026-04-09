@@ -95,7 +95,6 @@ env JAVA_HOME=/path/to/java17 \
   -Dexec.args="--spark-master local[1] \
     --database pixels_bench \
     --table savingaccount \
-    --buckets 0 \
     --rpc-host localhost \
     --rpc-port 9091 \
     --metadata-host localhost \
@@ -174,7 +173,6 @@ pixels.spark.delta.trigger.interval=0 seconds
 ./scripts/run-delta-merge.sh \
   --database pixels_bench \
   --table savingaccount \
-  --buckets 0 \
   --rpc-host localhost \
   --rpc-port 9091 \
   --metadata-host localhost \
@@ -183,6 +181,8 @@ pixels.spark.delta.trigger.interval=0 seconds
   --checkpoint-location /tmp/pixels-spark-savingaccount-ckpt \
   --trigger-mode once
 ```
+
+bucket 选择现在是自动的。默认会按 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num` 拉全量 bucket，不需要再手工传 `--buckets`。
 
 脚本会按以下顺序寻找 `spark-submit`：
 

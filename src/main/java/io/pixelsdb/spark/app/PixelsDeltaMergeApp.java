@@ -3,6 +3,7 @@ package io.pixelsdb.spark.app;
 import io.pixelsdb.spark.config.PixelsSparkConfig;
 import io.pixelsdb.spark.merge.PixelsDeltaMergeJob;
 import io.pixelsdb.spark.merge.PixelsDeltaMergeOptions;
+import io.pixelsdb.spark.merge.PixelsDeltaMergePollingJob;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.streaming.StreamingQuery;
 
@@ -34,8 +35,15 @@ public class PixelsDeltaMergeApp
         SparkSession spark = builder.getOrCreate();
         try
         {
-            StreamingQuery query = PixelsDeltaMergeJob.start(spark, options);
-            query.awaitTermination();
+            if (options.isPollingMode())
+            {
+                PixelsDeltaMergePollingJob.run(spark, options);
+            }
+            else
+            {
+                StreamingQuery query = PixelsDeltaMergeJob.start(spark, options);
+                query.awaitTermination();
+            }
         }
         finally
         {

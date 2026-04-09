@@ -115,9 +115,11 @@ $SPARK_HOME/bin/spark-submit \
   --driver-memory 20g \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
-  /home/ubuntu/disk1/projects/pixels-spark/scripts/import-benchmark-csv-to-delta-s3.py \
+  --class io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp \
+  /home/ubuntu/disk1/projects/pixels-spark/target/pixels-spark-0.1.jar \
   /home/ubuntu/disk1/hybench_sf10 \
   s3a://home-zinuo/deltalake/hybench_sf10 \
+  local[4] \
   customer
 ```
 
@@ -203,6 +205,8 @@ Then run the actual Spark job scripts, for example:
 ```bash
 ./scripts/run-import-hybench-sf10.sh
 ./scripts/run-cdc-hybench-sf10.sh
+./scripts/status-cdc-hybench-sf10.sh
+./scripts/stop-cdc-hybench-sf10.sh
 ```
 
 ## 8. Start CDC and Monitoring
@@ -286,8 +290,23 @@ So the `System` panel at the top is machine-wide information, not only one Spark
 Metric file locations:
 
 - system CSV: `/tmp/hybench_sf10_cdc_metrics/system.csv`
+- resource CSV: `/home/ubuntu/disk1/projects/pixels-spark/data/hybench/sf10/resource/resource_cdc.csv`
 - per-table JSON: `/tmp/hybench_sf10_cdc_metrics/<table>.json`
 - per-table history CSV: `/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+The resource CSV follows the same shape as files such as `resource_iceberg.csv`, with this header:
+
+```csv
+time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap
+```
+
+By default:
+
+- `cpu`: summed CPU across all CDC Spark JVMs
+- `jvm_heap`: summed used heap across all CDC Spark JVMs
+- `jvm_managed`: summed `-Xmx` across all CDC Spark JVMs
+- `jvm_direct`: currently `0 MiB`, because JVM Native Memory Tracking is not enabled
+- `jvm_noheap`: summed Metaspace + class space usage
 
 Related logs:
 

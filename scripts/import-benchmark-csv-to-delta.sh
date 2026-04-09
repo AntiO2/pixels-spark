@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 CSV_ROOT="${1:-/home/antio2/projects/pixels-benchmark/Data_1x}"
-DELTA_ROOT="${2:-/tmp/pixels-benchmark-deltalake/data_1x}"
+DELTA_ROOT="${2:-$(pixels_get_property pixels.import.local.delta-root /home/ubuntu/disk1/tmp/pixels-benchmark-deltalake/data_1x)}"
 SPARK_MASTER="${3:-local[1]}"
 PIXELS_SPARK_CONFIG_FILE="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
 

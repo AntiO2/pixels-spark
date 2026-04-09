@@ -115,9 +115,11 @@ $SPARK_HOME/bin/spark-submit \
   --driver-memory 20g \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
-  /home/ubuntu/disk1/projects/pixels-spark/scripts/import-benchmark-csv-to-delta-s3.py \
+  --class io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp \
+  /home/ubuntu/disk1/projects/pixels-spark/target/pixels-spark-0.1.jar \
   /home/ubuntu/disk1/hybench_sf10 \
   s3a://home-zinuo/deltalake/hybench_sf10 \
+  local[4] \
   customer
 ```
 
@@ -203,6 +205,8 @@ source /home/ubuntu/disk1/opt/conf/pixels-delta-env.sh && export JAVA_HOME="$JAV
 ```bash
 ./scripts/run-import-hybench-sf10.sh
 ./scripts/run-cdc-hybench-sf10.sh
+./scripts/status-cdc-hybench-sf10.sh
+./scripts/stop-cdc-hybench-sf10.sh
 ```
 
 ## 8. 启动 CDC 与监控
@@ -286,8 +290,23 @@ http://127.0.0.1:8084/api/status
 采样文件位置：
 
 - 系统总览 CSV：`/tmp/hybench_sf10_cdc_metrics/system.csv`
+- 资源监控 CSV：`/home/ubuntu/disk1/projects/pixels-spark/data/hybench/sf10/resource/resource_cdc.csv`
 - 单表 JSON：`/tmp/hybench_sf10_cdc_metrics/<table>.json`
 - 单表历史 CSV：`/tmp/hybench_sf10_cdc_metrics/<table>.csv`
+
+其中资源监控 CSV 的格式对齐 `resource_iceberg.csv` 这一类文件，表头为：
+
+```csv
+time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap
+```
+
+默认含义：
+
+- `cpu`：所有 CDC Spark JVM 的总 CPU
+- `jvm_heap`：所有 CDC Spark JVM 当前已用 heap
+- `jvm_managed`：所有 CDC Spark JVM 的 `-Xmx` 总和
+- `jvm_direct`：当前默认记为 `0 MiB`，因为 JVM 没有开启 NMT，无法可靠拿到 direct memory 实时值
+- `jvm_noheap`：Metaspace + class space 总和
 
 相关日志位置：
 

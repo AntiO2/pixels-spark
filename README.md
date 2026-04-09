@@ -95,7 +95,6 @@ env JAVA_HOME=/path/to/java17 \
   -Dexec.args="--spark-master local[1] \
     --database pixels_bench \
     --table savingaccount \
-    --buckets 0 \
     --rpc-host localhost \
     --rpc-port 9091 \
     --metadata-host localhost \
@@ -174,7 +173,6 @@ After packaging, you can submit the shaded JAR directly:
 ./scripts/run-delta-merge.sh \
   --database pixels_bench \
   --table savingaccount \
-  --buckets 0 \
   --rpc-host localhost \
   --rpc-port 9091 \
   --metadata-host localhost \
@@ -183,6 +181,8 @@ After packaging, you can submit the shaded JAR directly:
   --checkpoint-location /tmp/pixels-spark-savingaccount-ckpt \
   --trigger-mode once
 ```
+
+Bucket selection is automatic. By default, CDC pulls all source buckets defined by `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`; you do not need to pass `--buckets`.
 
 The helper scripts look for `spark-submit` in this order:
 
