@@ -188,7 +188,7 @@ INDEX_HTML = """<!doctype html>
 
       document.getElementById("updated-at").textContent = `Updated ${data.generated_at}`;
       document.getElementById("system-summary").textContent =
-        `load ${data.system.load1 ?? "-"} | mem ${data.system.mem_used_mb ?? "-"} MB used / ${data.system.mem_avail_mb ?? "-"} MB avail | disk ${data.system.disk_used_pct ?? "-"}%`;
+        `load ${data.system.load1 ?? "-"} | mem ${data.system.mem_used_mb ?? "-"} MB used / ${data.system.mem_avail_mb ?? "-"} MB avail | disk ${data.system.disk_used_pct ?? "-"}% | net rx ${data.system.net_rx_mbps ?? "-"} Mbps tx ${data.system.net_tx_mbps ?? "-"} Mbps | disk io r ${data.system.disk_read_mbps ?? "-"} Mbps w ${data.system.disk_write_mbps ?? "-"} Mbps`;
 
       const serviceGrid = document.getElementById("service-grid");
       serviceGrid.innerHTML = "";

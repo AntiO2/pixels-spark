@@ -56,6 +56,32 @@ Notes:
 - both shell scripts and application code now read this same file by default
 - defaults for `run-import-hybench-sf10.sh`, `run-import-hybench-sf1000.sh`, `run-cdc-hybench-sf10.sh`, and `run-single-cdc-foreground.sh` are centralized here
 - avoid splitting the same operational settings across multiple `.env` files
+- benchmark definition files:
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
+- these files define table names, input file names, delimiters, Spark schemas, and primary-key columns
+- ImportApp and CDC now share the same local definitions instead of fetching primary keys dynamically from the Pixels metadata service
+
+Example table definition:
+
+```properties
+tables=customer,company
+table.customer.file=customer.csv
+table.customer.delimiter=,
+table.customer.primary-keys=custID
+table.customer.schema=custID:int,name:string,freshness_ts:timestamp
+```
+
+The `schema` field uses a comma-separated `column:type` format. The currently supported types are:
+
+- `int`
+- `long`
+- `float`
+- `double`
+- `string`
+- `date`
+- `timestamp`
+- `boolean`
 
 Confirm the import-related settings:
 
@@ -80,6 +106,14 @@ Run the full import:
   s3a://home-zinuo/deltalake/hybench_sf10
 ```
 
+Run the CHBenCHMark `w1` import:
+
+```bash
+./scripts/run-import-chbenchmark-w1.sh \
+  /home/ubuntu/disk1/ch_w1 \
+  s3a://home-zinuo/deltalake/chbenchmark_w1
+```
+
 Notes:
 
 - the import uses `overwrite`
@@ -89,6 +123,8 @@ Notes:
 - imports do not run `count()` by default
 - CSV data is read in chunks controlled by `pixels.spark.import.csv.chunk-rows`, then written to Delta chunk by chunk
 - CDC source batch sizing can be controlled through `pixels.spark.source.max-rows-per-batch`, `pixels.spark.source.max-wait-ms-per-batch`, and `pixels.spark.source.empty-poll-sleep-ms`
+- all import entrypoints now use the Java app:
+  - `io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp`
 
 If you want DV enabled at table-creation time, the core Delta table property is:
 
@@ -125,9 +161,9 @@ done
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'company', table_location => 's3://home-zinuo/deltalake/hybench_sf10/company')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'transfer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/transfer')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
@@ -208,6 +244,18 @@ Then start the full `sf10` CDC workload:
 ./scripts/run-cdc-hybench-sf10.sh
 ```
 
+The local benchmark definitions used by CDC are controlled in [etc/pixels-spark.properties](../etc/pixels-spark.properties):
+
+```properties
+pixels.cdc.benchmark=hybench
+```
+
+To switch to CHBenCHMark:
+
+```properties
+pixels.cdc.benchmark=chbenchmark
+```
+
 This starts one Spark CDC job for each of:
 
 - `customer`
@@ -236,6 +284,12 @@ If you only want to validate source polling without executing the Delta merge, r
 ```
 
 By default, CDC pulls all source buckets defined by `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`; do not pass `--buckets` manually.
+
+Notes:
+
+- CDC source schemas come from the benchmark definition files
+- CDC merge primary-key columns also come from the benchmark definition files
+- CDC no longer depends on the Pixels metadata service for schema or primary-key definitions
 
 ## 7. Start Monitoring
 

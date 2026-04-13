@@ -1,9 +1,8 @@
 package io.pixelsdb.spark.source;
 
-import io.pixelsdb.pixels.common.metadata.domain.Column;
+import io.pixelsdb.spark.benchmark.BenchmarkTableDefinition;
+import io.pixelsdb.spark.benchmark.BenchmarkTableRegistry;
 import io.pixelsdb.spark.merge.PixelsDeltaMergeColumns;
-import io.pixelsdb.spark.metadata.PixelsTableMetadata;
-import io.pixelsdb.spark.metadata.PixelsTableMetadataRegistry;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
@@ -20,17 +19,13 @@ public final class PixelsMetadataSchemaLoader
 
     public static StructType load(PixelsSourceOptions options)
     {
-        PixelsTableMetadata tableMetadata = PixelsTableMetadataRegistry.get(options)
-                .getTableMetadata(options.getDatabase(), options.getTable());
-        List<Column> columns = tableMetadata.getColumns();
-        List<StructField> fields = new ArrayList<>(columns.size() + 5);
-        for (Column column : columns)
+        BenchmarkTableDefinition definition = BenchmarkTableRegistry.require(
+                options.getBenchmark(),
+                options.getTable());
+        List<StructField> fields = new ArrayList<>(definition.getSchema().fields().length + 5);
+        for (StructField field : definition.getSchema().fields())
         {
-            fields.add(DataTypes.createStructField(
-                    column.getName(),
-                    PixelsTypeParser.parse(column.getType()),
-                    true,
-                    Metadata.empty()));
+            fields.add(DataTypes.createStructField(field.name(), field.dataType(), field.nullable(), Metadata.empty()));
         }
         fields.add(DataTypes.createStructField(
                 PixelsDeltaMergeColumns.BUCKET_ID,

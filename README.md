@@ -2,12 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`pixels-spark` is a Spark Structured Streaming connector and Delta Lake merge pipeline for Pixels CDC streams.
+`pixels-spark` is a Spark CDC and Delta Lake merge/import pipeline for Pixels workloads.
 
 It provides two core capabilities:
 
-- Read CDC records from the Pixels RPC service with `spark.readStream.format("pixels")`
-- Merge those CDC records into a Delta Lake table using primary keys loaded from the Pixels metadata service
+- Read CDC records from the Pixels RPC service
+- Merge those CDC records into Delta Lake tables using local benchmark table definitions
+- Reuse the same benchmark table definitions for both CSV import and CDC merge
 
 ## Features
 

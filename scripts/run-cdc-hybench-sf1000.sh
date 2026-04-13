@@ -5,13 +5,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-${ROOT_DIR}/etc/pixels-spark.properties}"
 source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 
-STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)}"
-LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)}"
-CKPT_ROOT="${CKPT_ROOT:-$(pixels_get_property pixels.cdc.checkpoint-root /home/ubuntu/disk1/tmp/hybench_sf10_cdc_ckpt)}"
-METRICS_DIR="${METRICS_DIR:-$(pixels_get_property pixels.cdc.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_metrics)}"
-RESOURCE_DIR="${RESOURCE_DIR:-$(pixels_get_property pixels.cdc.resource-dir ${ROOT_DIR}/data/hybench/sf10/resource)}"
+PROFILE="sf1000"
+UNIT_PREFIX="${UNIT_PREFIX:-pixels-cdc-${PROFILE}}"
+STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.state-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_state)}"
+LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.log-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_logs)}"
+CKPT_ROOT="${CKPT_ROOT:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.checkpoint-root /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_ckpt)}"
+METRICS_DIR="${METRICS_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_metrics)}"
+RESOURCE_DIR="${RESOURCE_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.resource-dir ${ROOT_DIR}/data/hybench/sf1000/resource)}"
 SPARK_EVENTS_DIR="${SPARK_EVENTS_DIR:-$(pixels_get_property pixels.spark.event-log.dir /home/ubuntu/disk1/tmp/spark-events)}"
-TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.spark.delta.target.path s3a://home-zinuo/deltalake/hybench_sf10)}"
+TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.target-root s3a://home-zinuo/deltalake/hybench_sf1000)}"
 DATABASE="${DATABASE:-$(pixels_get_property pixels.cdc.database pixels_bench)}"
 CDC_BENCHMARK="${CDC_BENCHMARK:-$(pixels_get_property pixels.cdc.benchmark hybench)}"
 RPC_HOST="${RPC_HOST:-$(pixels_get_property pixels.spark.rpc.host 127.0.0.1)}"
@@ -89,6 +91,7 @@ start_table() {
   DELETE_MODE="${DELETE_MODE}" \
   SINK_MODE="${SINK_MODE}" \
   NOOP_BUCKETS="${NOOP_BUCKETS}" \
+  UNIT_PREFIX="${UNIT_PREFIX}" \
   "${ROOT_DIR}/scripts/start-single-cdc-job.sh" "${table_name}" >/dev/null
   log "started table=${table_name} pid=$(cat "${pid_file}") log=${LOG_DIR}/${table_name}.log"
 }
@@ -102,7 +105,7 @@ main() {
     start_table "${table_name}"
   done
 
-  log "all table jobs submitted"
+  log "all table jobs submitted profile=${PROFILE} unit_prefix=${UNIT_PREFIX}"
 }
 
 main "$@"

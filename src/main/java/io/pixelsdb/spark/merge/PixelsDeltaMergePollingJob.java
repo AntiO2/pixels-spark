@@ -59,10 +59,14 @@ public final class PixelsDeltaMergePollingJob
                 if (emitted != null)
                 {
                     Dataset<Row> batch = PixelsPollingBatchFetcher.toDataset(spark, sourceOptions, emitted.rows);
+                    String effectiveSinkMode = options.sinkModeForBucket(emitted.bucketId);
+                    PixelsDeltaMergeOptions bucketOptions = effectiveSinkMode.equals(options.getSinkMode())
+                            ? options
+                            : options.withSinkMode(effectiveSinkMode);
                     LOG.info("pollingProcess table={}.{} bucket={} batchId={} rows={} sinkMode={}",
                             options.getDatabase(), options.getTable(), emitted.bucketId, batchId,
-                            emitted.rows.size(), options.getSinkMode());
-                    PixelsDeltaMergeJob.processBatch(batch, batchId++, options);
+                            emitted.rows.size(), effectiveSinkMode);
+                    PixelsDeltaMergeJob.processBatch(batch, batchId++, bucketOptions);
                 }
 
                 if (isOneShot(options) && allWorkersStopped(states) && emittedBatches.isEmpty())
@@ -139,6 +143,7 @@ public final class PixelsDeltaMergePollingJob
         values.put(PixelsSourceOptions.PORT, String.valueOf(options.getRpcPort()));
         values.put(PixelsSourceOptions.DATABASE, options.getDatabase());
         values.put(PixelsSourceOptions.TABLE, options.getTable());
+        values.put(PixelsSourceOptions.BENCHMARK, options.getBenchmark());
         values.put(PixelsSourceOptions.BUCKETS, joinBuckets(options.getBuckets()));
         values.put(PixelsSourceOptions.METADATA_HOST, options.getMetadataHost());
         values.put(PixelsSourceOptions.METADATA_PORT, String.valueOf(options.getMetadataPort()));

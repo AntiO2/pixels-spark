@@ -239,6 +239,20 @@ Start metric collection:
 ./scripts/collect-cdc-metrics.sh
 ```
 
+Run metrics collection for a specific profile:
+
+```bash
+PROFILE=hybench_sf10 ./scripts/collect-cdc-metrics.sh
+PROFILE=hybench_sf1000 ./scripts/collect-cdc-metrics.sh
+PROFILE=chbenchmark_w10000 ./scripts/collect-cdc-metrics.sh
+```
+
+`PROFILE` is case-insensitive and normalizes separators, for example:
+
+- `hybench_sf10`
+- `HyBench SF1000`
+- `CHBENCHMARK-WH10000`
+
 Start the read-only monitoring page:
 
 ```bash
@@ -284,6 +298,10 @@ Overall system metrics come from `collect-cdc-metrics.sh`:
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 So the `System` panel at the top is machine-wide information, not only one Spark process.
 
@@ -297,7 +315,7 @@ Metric file locations:
 The resource CSV follows the same shape as files such as `resource_iceberg.csv`, with this header:
 
 ```csv
-time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap
+time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap,net_rx_mbps,net_tx_mbps,disk_read_mbps,disk_write_mbps
 ```
 
 By default:
@@ -307,6 +325,15 @@ By default:
 - `jvm_managed`: summed `-Xmx` across all CDC Spark JVMs
 - `jvm_direct`: currently `0 MiB`, because JVM Native Memory Tracking is not enabled
 - `jvm_noheap`: summed Metaspace + class space usage
+- `net_rx_mbps` / `net_tx_mbps`: receive/transmit throughput on the primary network interface, in Mbps
+- `disk_read_mbps` / `disk_write_mbps`: read/write throughput on the main disk backing `pixels.tmp.root`, in Mbps
+
+Optional config:
+
+- `pixels.cdc.network-interface`
+- `pixels.cdc.disk-device`
+
+Both default to `auto`. In `auto` mode, the collector picks the default-route interface and the disk backing the mount used by `pixels.tmp.root`.
 
 Related logs:
 

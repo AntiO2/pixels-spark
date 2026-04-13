@@ -239,6 +239,20 @@ source /home/ubuntu/disk1/opt/conf/pixels-delta-env.sh && export JAVA_HOME="$JAV
 ./scripts/collect-cdc-metrics.sh
 ```
 
+按 profile 采集：
+
+```bash
+PROFILE=hybench_sf10 ./scripts/collect-cdc-metrics.sh
+PROFILE=hybench_sf1000 ./scripts/collect-cdc-metrics.sh
+PROFILE=chbenchmark_w10000 ./scripts/collect-cdc-metrics.sh
+```
+
+`PROFILE` 大小写不敏感，分隔符也会自动归一化，例如：
+
+- `hybench_sf10`
+- `HyBench SF1000`
+- `CHBENCHMARK-WH10000`
+
 启动只读监控页：
 
 ```bash
@@ -284,6 +298,10 @@ http://127.0.0.1:8084/api/status
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 也就是监控页顶部的 `System` 区域显示的是整机概览，而不是单个 Spark 进程的局部信息。
 
@@ -297,7 +315,7 @@ http://127.0.0.1:8084/api/status
 其中资源监控 CSV 的格式对齐 `resource_iceberg.csv` 这一类文件，表头为：
 
 ```csv
-time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap
+time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap,net_rx_mbps,net_tx_mbps,disk_read_mbps,disk_write_mbps
 ```
 
 默认含义：
@@ -307,6 +325,15 @@ time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap
 - `jvm_managed`：所有 CDC Spark JVM 的 `-Xmx` 总和
 - `jvm_direct`：当前默认记为 `0 MiB`，因为 JVM 没有开启 NMT，无法可靠拿到 direct memory 实时值
 - `jvm_noheap`：Metaspace + class space 总和
+- `net_rx_mbps` / `net_tx_mbps`：主网卡的接收/发送吞吐，单位 Mbps
+- `disk_read_mbps` / `disk_write_mbps`：承载 `pixels.tmp.root` 的主磁盘读写吞吐，单位 Mbps
+
+可选配置：
+
+- `pixels.cdc.network-interface`
+- `pixels.cdc.disk-device`
+
+默认值都是 `auto`。`auto` 会自动选择默认路由网卡，以及 `pixels.tmp.root` 所在挂载点对应的磁盘设备。
 
 相关日志位置：
 

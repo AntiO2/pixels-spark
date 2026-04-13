@@ -43,6 +43,14 @@ Pixels CDC merge 运行环境包括：
 - Pixels RPC 服务
 - Pixels metadata service
 
+说明：
+
+- 当前 CDC 的 schema 和主键定义不再从 Pixels metadata service 动态拉取
+- 这些定义来自仓库内的 benchmark 资源文件：
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
+- metadata service 仍然可以作为运行环境组件存在，但不再承担 CDC schema / 主键解析职责
+
 建议先执行：
 
 ```bash
@@ -77,6 +85,9 @@ Pixels CDC merge 运行环境包括：
 - Spark SQL 导入模板：`pixels-benchmark/conf/load_data_deltalake.sql`
 - 可执行导入脚本：[scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
 - Java 导入程序：[src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java](../src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java)
+- benchmark 定义：
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
 - 项目配置文件：[etc/pixels-spark.properties](../etc/pixels-spark.properties)
 - Trino Delta catalog 模板：[etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
 
@@ -108,6 +119,7 @@ primary-key canonical bytes -> ByteString -> RetinaUtils.getBucketIdFromByteBuff
 - 新的 bucket 数配置来自 `$PIXELS_HOME/etc/pixels.properties`
 - 实际配置项是 `node.bucket.num`
 - 导入和 CDC 都与 server 使用同一套 bucket 计算方式
+- HyBench 和 CHBenCHMark 的表结构、输入文件名、分隔符、主键列统一由 benchmark 定义文件维护
 
 重新导入数据前，建议先确认这些配置：
 
@@ -155,6 +167,12 @@ export PIXELS_SPARK_CONFIG=/home/ubuntu/disk1/projects/pixels-spark/etc/pixels-s
 
 ```bash
 ./scripts/run-import-hybench-sf1000.sh
+```
+
+如果要导入 CHBenCHMark `w1`，直接使用：
+
+```bash
+./scripts/run-import-chbenchmark-w1.sh
 ```
 
 如果要整库重新导入 `sf10` 到 S3，直接使用：
@@ -328,9 +346,9 @@ done
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'company', table_location => 's3://home-zinuo/deltalake/hybench_sf10/company')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'transfer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/transfer')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
@@ -404,6 +422,45 @@ Pixels RPC -> Spark Structured Streaming -> foreachBatch -> Delta MERGE
 ```
 
 CDC 模式下 bucket 选择现在是自动的。source 会按 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num` 拉全量 bucket，不需要手工传 `--buckets`。
+
+当前 CDC merge 实现会先把一个 bucket batch 拆成三类操作，再分别处理：
+
+- `INSERT` / `SNAPSHOT`
+  - 直接 append 到 Delta
+- `UPDATE`
+  - 单独执行 `MERGE ... WHEN MATCHED UPDATE`
+- `DELETE`
+  - 单独执行 hard delete 或 soft delete
+
+代码结构也已经重构为：
+
+- 预处理器：负责可选的 `latestPerPrimaryKey(...)` 和三类操作拆分
+- 目标表支持层：负责建表、补列、表属性校验
+- 操作处理器：`InsertHandler` / `UpdateHandler` / `DeleteHandler`
+
+如果上游已经保证同主键记录顺序和折叠结果，可以关闭：
+
+```properties
+pixels.spark.delta.enable-latest-per-primary-key=false
+```
+
+CDC 使用哪一套本地 benchmark 定义，由 [etc/pixels-spark.properties](../etc/pixels-spark.properties) 中的配置控制：
+
+```properties
+pixels.cdc.benchmark=hybench
+```
+
+如果要切换为 CHBenCHMark：
+
+```properties
+pixels.cdc.benchmark=chbenchmark
+```
+
+补充说明：
+
+- CDC source schema 来自 benchmark 定义文件
+- CDC `MERGE` 使用的主键列也来自 benchmark 定义文件
+- ImportApp 与 CDC 共用同一套本地定义，避免两条路径上的表结构漂移
 
 默认 delete 行为为：
 
@@ -497,6 +554,10 @@ http://127.0.0.1:8084
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 资源 CSV 额外提供一份更接近 `resource_iceberg.csv` 的 JVM 汇总格式：
 
@@ -506,11 +567,17 @@ http://127.0.0.1:8084
 - `jvm_managed`
 - `jvm_direct`
 - `jvm_noheap`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 如果要调整输出位置，可以修改：
 
 - `pixels.cdc.resource-dir`
 - `pixels.cdc.resource-file`
+- `pixels.cdc.network-interface`
+- `pixels.cdc.disk-device`
 
 每张表的作业指标来自：
 

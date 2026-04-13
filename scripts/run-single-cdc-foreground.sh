@@ -18,6 +18,7 @@ CKPT_ROOT="${CKPT_ROOT:-$(pixels_get_property pixels.cdc.checkpoint-root /home/u
 SPARK_EVENTS_DIR="${SPARK_EVENTS_DIR:-$(pixels_get_property pixels.spark.event-log.dir /home/ubuntu/disk1/tmp/spark-events)}"
 TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.spark.delta.target.path s3a://home-zinuo/deltalake/hybench_sf10)}"
 DATABASE="${DATABASE:-$(pixels_get_property pixels.cdc.database pixels_bench)}"
+CDC_BENCHMARK="${CDC_BENCHMARK:-$(pixels_get_property pixels.cdc.benchmark hybench)}"
 RPC_HOST="${RPC_HOST:-$(pixels_get_property pixels.spark.rpc.host 127.0.0.1)}"
 RPC_PORT="${RPC_PORT:-$(pixels_get_property pixels.spark.rpc.port 9091)}"
 METADATA_HOST="${METADATA_HOST:-$(pixels_get_property pixels.spark.metadata.host 127.0.0.1)}"
@@ -28,6 +29,7 @@ TRIGGER_MODE="${TRIGGER_MODE:-$(pixels_get_property pixels.spark.delta.trigger.m
 TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-$(pixels_get_property pixels.spark.delta.trigger.interval 10 seconds)}"
 DELETE_MODE="${DELETE_MODE:-$(pixels_get_property pixels.spark.delta.delete.mode hard)}"
 SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.delta.sink-mode delta)}"
+NOOP_BUCKETS="${NOOP_BUCKETS:-$(pixels_get_property pixels.spark.delta.noop-buckets "")}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-$(pixels_get_property pixels.spark.driver.memory 8g)}"
 SPARK_LOCAL_PARALLELISM="${SPARK_LOCAL_PARALLELISM:-}"
 SPARK_SHUFFLE_PARTITIONS="${SPARK_SHUFFLE_PARTITIONS:-$(pixels_get_property pixels.spark.shuffle.partitions "")}"
@@ -83,6 +85,7 @@ exec "${ROOT_DIR}/scripts/run-delta-merge.sh" \
   --mode "${MODE}" \
   --database "${DATABASE}" \
   --table "${TABLE_NAME}" \
+  --benchmark "${CDC_BENCHMARK}" \
   --rpc-host "${RPC_HOST}" \
   --rpc-port "${RPC_PORT}" \
   --metadata-host "${METADATA_HOST}" \
@@ -92,5 +95,6 @@ exec "${ROOT_DIR}/scripts/run-delta-merge.sh" \
   --trigger-mode "${TRIGGER_MODE}" \
   --trigger-interval "${TRIGGER_INTERVAL}" \
   --sink-mode "${SINK_MODE}" \
+  ${NOOP_BUCKETS:+--noop-buckets "${NOOP_BUCKETS}"} \
   --delete-mode "${DELETE_MODE}" \
   --auto-create-table true

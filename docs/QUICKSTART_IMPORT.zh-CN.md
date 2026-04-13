@@ -56,6 +56,32 @@ s3.endpoint=https://s3.us-east-2.amazonaws.com
 - 现在脚本侧和应用侧默认都读取这一个文件
 - `run-import-hybench-sf10.sh`、`run-import-hybench-sf1000.sh`、`run-cdc-hybench-sf10.sh`、`run-single-cdc-foreground.sh` 的默认参数都集中在这里
 - 不再建议把同一套参数分散写到多个 `.env` 脚本里
+- benchmark 表定义文件：
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
+- 这两份文件定义了表名、输入文件名、分隔符、Spark schema 和主键列
+- ImportApp 与 CDC 共用这份本地定义，不再从 Pixels metadata service 动态拉主键信息
+
+单表定义格式示例：
+
+```properties
+tables=customer,company
+table.customer.file=customer.csv
+table.customer.delimiter=,
+table.customer.primary-keys=custID
+table.customer.schema=custID:int,name:string,freshness_ts:timestamp
+```
+
+其中 `schema` 使用 `列名:类型` 的逗号分隔格式；当前支持的类型包括：
+
+- `int`
+- `long`
+- `float`
+- `double`
+- `string`
+- `date`
+- `timestamp`
+- `boolean`
 
 确认 bucket 配置：
 
@@ -80,6 +106,14 @@ pixels.spark.import.count-rows=false
   s3a://home-zinuo/deltalake/hybench_sf10
 ```
 
+执行 CHBenCHMark `w1` 导入：
+
+```bash
+./scripts/run-import-chbenchmark-w1.sh \
+  /home/ubuntu/disk1/ch_w1 \
+  s3a://home-zinuo/deltalake/chbenchmark_w1
+```
+
 说明：
 
 - 导入是 `overwrite`
@@ -89,6 +123,8 @@ pixels.spark.import.count-rows=false
 - 默认不会先做 `count()`
 - 导入会按 `pixels.spark.import.csv.chunk-rows` 分块读取 CSV，再循环写入 Delta
 - CDC source 单批大小可通过 `pixels.spark.source.max-rows-per-batch`、`pixels.spark.source.max-wait-ms-per-batch`、`pixels.spark.source.empty-poll-sleep-ms` 控制
+- 所有导入入口现在统一走 Java：
+  - `io.pixelsdb.spark.app.PixelsBenchmarkDeltaImportApp`
 
 如果你希望在创建表时就明确开启 DV，核心表属性是：
 
@@ -125,9 +161,9 @@ done
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'company', table_location => 's3://home-zinuo/deltalake/hybench_sf10/company')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'transfer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/transfer')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
@@ -208,6 +244,18 @@ SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
 ./scripts/run-cdc-hybench-sf10.sh
 ```
 
+CDC 使用哪一套本地 benchmark 定义，由 [etc/pixels-spark.properties](../etc/pixels-spark.properties) 里的配置控制：
+
+```properties
+pixels.cdc.benchmark=hybench
+```
+
+如果要切换为 CHBenCHMark：
+
+```properties
+pixels.cdc.benchmark=chbenchmark
+```
+
 这个脚本会为以下表各启动一个 Spark CDC 作业：
 
 - `customer`
@@ -236,6 +284,12 @@ SET TBLPROPERTIES ('delta.enableDeletionVectors'='true');
 ```
 
 默认会按 `$PIXELS_HOME/etc/pixels.properties` 中的 `node.bucket.num` 拉全量 source bucket，不需要手工传 `--buckets`。
+
+说明：
+
+- CDC source schema 来自 benchmark 定义文件
+- CDC `MERGE` 使用的主键列也来自 benchmark 定义文件
+- 现在 CDC 不再依赖 Pixels metadata service 提供 schema / 主键定义
 
 ## 7. 启动监控
 

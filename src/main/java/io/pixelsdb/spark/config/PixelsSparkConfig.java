@@ -18,22 +18,26 @@ public final class PixelsSparkConfig
     public static final String RPC_PORT = "pixels.spark.rpc.port";
     public static final String METADATA_HOST = "pixels.spark.metadata.host";
     public static final String METADATA_PORT = "pixels.spark.metadata.port";
+    public static final String CDC_BENCHMARK = "pixels.cdc.benchmark";
     public static final String DELTA_TARGET_PATH = "pixels.spark.delta.target.path";
     public static final String DELTA_CHECKPOINT_LOCATION = "pixels.spark.delta.checkpoint.location";
     public static final String DELTA_MODE = "pixels.spark.delta.mode";
     public static final String DELTA_TRIGGER_MODE = "pixels.spark.delta.trigger.mode";
     public static final String DELTA_TRIGGER_INTERVAL = "pixels.spark.delta.trigger.interval";
     public static final String DELTA_SINK_MODE = "pixels.spark.delta.sink-mode";
+    public static final String DELTA_NOOP_BUCKETS = "pixels.spark.delta.noop-buckets";
     public static final String DELTA_MAX_PENDING_BATCHES = "pixels.spark.delta.max-pending-batches";
+    public static final String DELTA_ENABLE_LATEST_PER_PRIMARY_KEY = "pixels.spark.delta.enable-latest-per-primary-key";
     public static final String DELTA_AUTO_CREATE = "pixels.spark.delta.auto-create";
     public static final String DELTA_DELETE_MODE = "pixels.spark.delta.delete.mode";
-    public static final String DELTA_HASH_BUCKET_COUNT = "pixels.spark.delta.hash-bucket.count";
     public static final String DELTA_ENABLE_DELETION_VECTORS = "pixels.spark.delta.enable-deletion-vectors";
     public static final String IMPORT_CSV_CHUNK_ROWS = "pixels.spark.import.csv.chunk-rows";
     public static final String IMPORT_COUNT_ROWS = "pixels.spark.import.count-rows";
     public static final String SPARK_MASTER = "pixels.spark.master";
     public static final String SOURCE_MAX_ROWS_PER_BATCH = "pixels.spark.source.max-rows-per-batch";
     public static final String SOURCE_MAX_WAIT_MS_PER_BATCH = "pixels.spark.source.max-wait-ms-per-batch";
+    public static final String SOURCE_REFRESH_MAX_WAIT_ON_NON_EMPTY_POLL =
+            "pixels.spark.source.refresh-max-wait-on-non-empty-poll";
     public static final String SOURCE_EMPTY_POLL_SLEEP_MS = "pixels.spark.source.empty-poll-sleep-ms";
 
     private static final PixelsSparkConfig INSTANCE = new PixelsSparkConfig();

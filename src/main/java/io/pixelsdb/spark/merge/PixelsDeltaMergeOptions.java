@@ -5,7 +5,9 @@ import io.pixelsdb.spark.config.PixelsSparkConfig;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class PixelsDeltaMergeOptions implements Serializable
 {
@@ -15,6 +17,7 @@ public class PixelsDeltaMergeOptions implements Serializable
     private final int metadataPort;
     private final String database;
     private final String table;
+    private final String benchmark;
     private final List<Integer> buckets;
     private final String targetPath;
     private final String checkpointLocation;
@@ -22,6 +25,8 @@ public class PixelsDeltaMergeOptions implements Serializable
     private final String triggerMode;
     private final String triggerInterval;
     private final String sinkMode;
+    private final Set<Integer> noopBuckets;
+    private final boolean enableLatestPerPrimaryKey;
     private final boolean autoCreateTable;
     private final String deleteMode;
     private final boolean enableDeletionVectors;
@@ -33,6 +38,7 @@ public class PixelsDeltaMergeOptions implements Serializable
             int metadataPort,
             String database,
             String table,
+            String benchmark,
             List<Integer> buckets,
             String targetPath,
             String checkpointLocation,
@@ -40,6 +46,8 @@ public class PixelsDeltaMergeOptions implements Serializable
             String triggerMode,
             String triggerInterval,
             String sinkMode,
+            Set<Integer> noopBuckets,
+            boolean enableLatestPerPrimaryKey,
             boolean autoCreateTable,
             String deleteMode,
             boolean enableDeletionVectors)
@@ -50,6 +58,7 @@ public class PixelsDeltaMergeOptions implements Serializable
         this.metadataPort = metadataPort;
         this.database = database;
         this.table = table;
+        this.benchmark = benchmark;
         this.buckets = buckets == null ? Collections.<Integer>emptyList() : new ArrayList<>(buckets);
         this.targetPath = targetPath;
         this.checkpointLocation = checkpointLocation;
@@ -57,6 +66,8 @@ public class PixelsDeltaMergeOptions implements Serializable
         this.triggerMode = triggerMode;
         this.triggerInterval = triggerInterval;
         this.sinkMode = normalizeSinkMode(sinkMode);
+        this.noopBuckets = noopBuckets == null ? Collections.<Integer>emptySet() : new LinkedHashSet<>(noopBuckets);
+        this.enableLatestPerPrimaryKey = enableLatestPerPrimaryKey;
         this.autoCreateTable = autoCreateTable;
         this.deleteMode = deleteMode;
         this.enableDeletionVectors = enableDeletionVectors;
@@ -90,6 +101,11 @@ public class PixelsDeltaMergeOptions implements Serializable
     public String getTable()
     {
         return table;
+    }
+
+    public String getBenchmark()
+    {
+        return benchmark;
     }
 
     public List<Integer> getBuckets()
@@ -147,6 +163,55 @@ public class PixelsDeltaMergeOptions implements Serializable
         return "noop".equalsIgnoreCase(sinkMode);
     }
 
+    public Set<Integer> getNoopBuckets()
+    {
+        return Collections.unmodifiableSet(noopBuckets);
+    }
+
+    public boolean isBucketNoop(int bucketId)
+    {
+        return noopBuckets.contains(bucketId);
+    }
+
+    public boolean hasBucketSpecificSinkMode()
+    {
+        return !noopBuckets.isEmpty();
+    }
+
+    public String sinkModeForBucket(int bucketId)
+    {
+        return isBucketNoop(bucketId) ? "noop" : sinkMode;
+    }
+
+    public PixelsDeltaMergeOptions withSinkMode(String updatedSinkMode)
+    {
+        return new PixelsDeltaMergeOptions(
+                rpcHost,
+                rpcPort,
+                metadataHost,
+                metadataPort,
+                database,
+                table,
+                benchmark,
+                buckets,
+                targetPath,
+                checkpointLocation,
+                mode,
+                triggerMode,
+                triggerInterval,
+                updatedSinkMode,
+                noopBuckets,
+                enableLatestPerPrimaryKey,
+                autoCreateTable,
+                deleteMode,
+                enableDeletionVectors);
+    }
+
+    public boolean isEnableLatestPerPrimaryKey()
+    {
+        return enableLatestPerPrimaryKey;
+    }
+
     public String getDeleteMode()
     {
         return deleteMode;
@@ -172,6 +237,9 @@ public class PixelsDeltaMergeOptions implements Serializable
         String sinkMode = firstNonEmpty(
                 args.get("sink-mode"),
                 config.getOrDefault(PixelsSparkConfig.DELTA_SINK_MODE, "delta"));
+        Set<Integer> noopBuckets = parseBucketRanges(firstNonEmpty(
+                args.get("noop-buckets"),
+                config.get(PixelsSparkConfig.DELTA_NOOP_BUCKETS)));
 
         if (!"noop".equalsIgnoreCase(sinkMode) && targetPath == null)
         {
@@ -192,6 +260,8 @@ public class PixelsDeltaMergeOptions implements Serializable
                         String.valueOf(config.getIntOrDefault(PixelsSparkConfig.METADATA_PORT, 18888)))),
                 database,
                 table,
+                firstNonEmpty(args.get("benchmark"),
+                        config.getOrDefault(PixelsSparkConfig.CDC_BENCHMARK, "hybench")),
                 parseBuckets(args.get("buckets")),
                 targetPath,
                 checkpointLocation,
@@ -201,6 +271,10 @@ public class PixelsDeltaMergeOptions implements Serializable
                 firstNonEmpty(args.get("trigger-interval"),
                         config.getOrDefault(PixelsSparkConfig.DELTA_TRIGGER_INTERVAL, "0 seconds")),
                 sinkMode,
+                noopBuckets,
+                Boolean.parseBoolean(firstNonEmpty(args.get("enable-latest-per-primary-key"),
+                        String.valueOf(config.getBooleanOrDefault(
+                                PixelsSparkConfig.DELTA_ENABLE_LATEST_PER_PRIMARY_KEY, true)))),
                 Boolean.parseBoolean(firstNonEmpty(args.get("auto-create-table"),
                         String.valueOf(config.getBooleanOrDefault(PixelsSparkConfig.DELTA_AUTO_CREATE, true)))),
                 firstNonEmpty(args.get("delete-mode"),
@@ -259,6 +333,48 @@ public class PixelsDeltaMergeOptions implements Serializable
             throw new IllegalArgumentException("sink-mode must be one of: delta, noop");
         }
         return value.toLowerCase();
+    }
+
+    private static Set<Integer> parseBucketRanges(String raw)
+    {
+        if (raw == null || raw.trim().isEmpty())
+        {
+            return Collections.emptySet();
+        }
+
+        Set<Integer> result = new LinkedHashSet<>();
+        for (String token : raw.split(","))
+        {
+            String trimmed = token.trim();
+            if (trimmed.isEmpty())
+            {
+                continue;
+            }
+
+            int dash = trimmed.indexOf('-');
+            if (dash < 0)
+            {
+                result.add(Integer.parseInt(trimmed));
+                continue;
+            }
+
+            if (dash == 0 || dash == trimmed.length() - 1 || trimmed.indexOf('-', dash + 1) >= 0)
+            {
+                throw new IllegalArgumentException("Invalid bucket range: " + trimmed);
+            }
+
+            int start = Integer.parseInt(trimmed.substring(0, dash).trim());
+            int end = Integer.parseInt(trimmed.substring(dash + 1).trim());
+            if (end < start)
+            {
+                throw new IllegalArgumentException("Invalid bucket range: " + trimmed);
+            }
+            for (int bucket = start; bucket <= end; bucket++)
+            {
+                result.add(bucket);
+            }
+        }
+        return result;
     }
 
     private static String normalizeMode(String raw)

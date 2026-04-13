@@ -43,6 +43,14 @@ Pixels CDC merge runtime includes:
 - a Pixels RPC service
 - a Pixels metadata service
 
+Notes:
+
+- CDC schema and primary-key definitions are no longer loaded dynamically from the Pixels metadata service
+- these definitions now come from repository-local benchmark resources:
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
+- the metadata service can still exist as part of the runtime environment, but it no longer provides CDC schema / primary-key resolution
+
 Recommended first steps:
 
 ```bash
@@ -77,6 +85,9 @@ Reference files:
 - Spark SQL load template: `pixels-benchmark/conf/load_data_deltalake.sql`
 - Executable import script: [scripts/import-benchmark-csv-to-delta.sh](../scripts/import-benchmark-csv-to-delta.sh)
 - Java import app: [src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java](../src/main/java/io/pixelsdb/spark/app/PixelsBenchmarkDeltaImportApp.java)
+- benchmark definitions:
+  - [src/main/resources/benchmarks/hybench.properties](../src/main/resources/benchmarks/hybench.properties)
+  - [src/main/resources/benchmarks/chbenchmark.properties](../src/main/resources/benchmarks/chbenchmark.properties)
 - Project config file: [etc/pixels-spark.properties](../etc/pixels-spark.properties)
 - Trino Delta catalog template: [etc/trino-delta_lake.properties.example](../etc/trino-delta_lake.properties.example)
 
@@ -108,6 +119,7 @@ Where:
 - the authoritative bucket-count setting now comes from `$PIXELS_HOME/etc/pixels.properties`
 - the effective property is `node.bucket.num`
 - both import and CDC use the same bucket calculation path as the server
+- HyBench and CHBenCHMark table schemas, input file names, delimiters, and primary-key columns are now maintained in the benchmark definition files
 
 Before re-importing, confirm these settings:
 
@@ -155,6 +167,12 @@ To re-import the full `sf1000` dataset:
 
 ```bash
 ./scripts/run-import-hybench-sf1000.sh
+```
+
+To import CHBenCHMark `w1`:
+
+```bash
+./scripts/run-import-chbenchmark-w1.sh
 ```
 
 To re-import the full `sf10` dataset into S3:
@@ -320,9 +338,9 @@ done
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'company', table_location => 's3://home-zinuo/deltalake/hybench_sf10/company')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'savingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/savingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
-  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingAccount')\"
+  --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'checkingaccount', table_location => 's3://home-zinuo/deltalake/hybench_sf10/checkingaccount')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
   --execute \"CALL delta_lake.system.register_table(schema_name => 'hybench_sf10', table_name => 'transfer', table_location => 's3://home-zinuo/deltalake/hybench_sf10/transfer')\"
 /home/ubuntu/disk1/opt/trino-cli/trino --server http://127.0.0.1:8080 \
@@ -404,6 +422,45 @@ Use this when you want to validate polling and batch sizing only:
 ```
 
 Bucket selection is automatic in CDC mode. The source pulls all buckets defined by `node.bucket.num` in `$PIXELS_HOME/etc/pixels.properties`; you should not pass `--buckets` manually.
+
+The current CDC merge implementation first splits each bucket batch into three operation groups and processes them separately:
+
+- `INSERT` / `SNAPSHOT`
+  - appended directly to Delta
+- `UPDATE`
+  - executed as `MERGE ... WHEN MATCHED UPDATE`
+- `DELETE`
+  - executed as hard delete or soft delete
+
+The merge module is also refactored into:
+
+- a batch preprocessor for optional `latestPerPrimaryKey(...)` and operation splitting
+- a target-table support layer for table creation, schema alignment, and table properties
+- operation handlers: `InsertHandler`, `UpdateHandler`, and `DeleteHandler`
+
+If the upstream already guarantees per-key ordering and final-state folding, you can disable the extra latest-row step:
+
+```properties
+pixels.spark.delta.enable-latest-per-primary-key=false
+```
+
+The local benchmark definitions used by CDC are controlled in [etc/pixels-spark.properties](../etc/pixels-spark.properties):
+
+```properties
+pixels.cdc.benchmark=hybench
+```
+
+To switch to CHBenCHMark:
+
+```properties
+pixels.cdc.benchmark=chbenchmark
+```
+
+Additional notes:
+
+- CDC source schemas come from the benchmark definition files
+- CDC merge primary-key columns also come from the benchmark definition files
+- ImportApp and CDC share the same local definitions so the two paths stay aligned
 
 Default delete behavior:
 
@@ -493,6 +550,10 @@ Current sampled fields:
 - `mem_used_mb`
 - `mem_avail_mb`
 - `disk_used_pct`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 The resource CSV also provides a JVM-oriented summary similar to `resource_iceberg.csv`:
 
@@ -502,11 +563,17 @@ The resource CSV also provides a JVM-oriented summary similar to `resource_icebe
 - `jvm_managed`
 - `jvm_direct`
 - `jvm_noheap`
+- `net_rx_mbps`
+- `net_tx_mbps`
+- `disk_read_mbps`
+- `disk_write_mbps`
 
 You can change its output location with:
 
 - `pixels.cdc.resource-dir`
 - `pixels.cdc.resource-file`
+- `pixels.cdc.network-interface`
+- `pixels.cdc.disk-device`
 
 Per-table job metrics come from:
 

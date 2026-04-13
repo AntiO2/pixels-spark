@@ -96,6 +96,8 @@ public final class PixelsPollingBatchFetcher
         }
         options.put(PixelsSourceOptions.MAX_ROWS_PER_BATCH, String.valueOf(sourceOptions.getMaxRowsPerBatch()));
         options.put(PixelsSourceOptions.MAX_WAIT_MS_PER_BATCH, String.valueOf(sourceOptions.getMaxWaitMsPerBatch()));
+        options.put(PixelsSourceOptions.REFRESH_MAX_WAIT_ON_NON_EMPTY_POLL,
+                String.valueOf(sourceOptions.shouldRefreshMaxWaitOnNonEmptyPoll()));
         options.put(PixelsSourceOptions.EMPTY_POLL_SLEEP_MS, String.valueOf(sourceOptions.getEmptyPollSleepMs()));
 
         PixelsSourceOptions bucketOptions = new PixelsSourceOptions(options);
@@ -122,7 +124,10 @@ public final class PixelsPollingBatchFetcher
                             rows.add(row);
                         }
                     }
-                    deadline = System.currentTimeMillis() + maxWaitMs;
+                    if (bucketOptions.shouldRefreshMaxWaitOnNonEmptyPoll())
+                    {
+                        deadline = System.currentTimeMillis() + maxWaitMs;
+                    }
                     if (rows.size() >= bucketOptions.getMaxRowsPerBatch())
                     {
                         break;

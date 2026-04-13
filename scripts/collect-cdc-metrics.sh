@@ -4,28 +4,85 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 
-STATE_DIR="$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)"
-LOG_DIR="$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)"
-METRICS_DIR="$(pixels_get_property pixels.cdc.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_metrics)"
 TMP_ROOT="$(pixels_get_property pixels.tmp.root /home/ubuntu/disk1/tmp)"
-RESOURCE_DIR="$(pixels_get_property pixels.cdc.resource-dir "${ROOT_DIR}/data/hybench/sf10/resource")"
+PROFILE_RAW="${PROFILE:-hybench_sf10}"
+PROFILE_NORMALIZED="$(
+  printf '%s' "${PROFILE_RAW}" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//'
+)"
+STATE_DIR=""
+LOG_DIR=""
+METRICS_DIR=""
+RESOURCE_DIR=""
 RESOURCE_FILE="$(pixels_get_property pixels.cdc.resource-file resource_cdc.csv)"
+INTERVAL="${1:-5}"
+CDC_TABLES_RAW=""
+NETWORK_INTERFACE="${PIXELS_CDC_NETWORK_INTERFACE:-$(pixels_get_property pixels.cdc.network-interface auto)}"
+DISK_DEVICE="${PIXELS_CDC_DISK_DEVICE:-$(pixels_get_property pixels.cdc.disk-device auto)}"
+TABLES=()
+
+SYSTEM_CSV_HEADER="ts,load1,mem_used_mb,mem_avail_mb,disk_used_pct,net_rx_mbps,net_tx_mbps,disk_read_mbps,disk_write_mbps"
+RESOURCE_CSV_HEADER="time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap,net_rx_mbps,net_tx_mbps,disk_read_mbps,disk_write_mbps"
+PREV_NET_RX_BYTES=0
+PREV_NET_TX_BYTES=0
+PREV_DISK_READ_SECTORS=0
+PREV_DISK_WRITE_SECTORS=0
+PRIMARY_IFACE=""
+PRIMARY_DISK=""
+DISK_SECTOR_BYTES=512
+CURRENT_NET_RX_MBPS="0.00"
+CURRENT_NET_TX_MBPS="0.00"
+CURRENT_DISK_READ_MBPS="0.00"
+CURRENT_DISK_WRITE_MBPS="0.00"
+
+resolve_profile() {
+  case "${PROFILE_NORMALIZED}" in
+    hybench_sf10|hybench10|sf10)
+      STATE_DIR="$(pixels_get_property pixels.cdc.hybench.sf10.state-dir "$(pixels_get_property pixels.cdc.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_state)")"
+      LOG_DIR="$(pixels_get_property pixels.cdc.hybench.sf10.log-dir "$(pixels_get_property pixels.cdc.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_logs)")"
+      METRICS_DIR="$(pixels_get_property pixels.cdc.hybench.sf10.metrics-dir "$(pixels_get_property pixels.cdc.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf10_cdc_metrics)")"
+      RESOURCE_DIR="$(pixels_get_property pixels.cdc.hybench.sf10.resource-dir "$(pixels_get_property pixels.cdc.resource-dir "${ROOT_DIR}/data/hybench/sf10/resource")")"
+      CDC_TABLES_RAW="$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)"
+      ;;
+    hybench_sf1000|hybench1000|sf1000)
+      STATE_DIR="$(pixels_get_property pixels.cdc.hybench.sf1000.state-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_state)"
+      LOG_DIR="$(pixels_get_property pixels.cdc.hybench.sf1000.log-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_logs)"
+      METRICS_DIR="$(pixels_get_property pixels.cdc.hybench.sf1000.metrics-dir /home/ubuntu/disk1/tmp/hybench_sf1000_cdc_metrics)"
+      RESOURCE_DIR="$(pixels_get_property pixels.cdc.hybench.sf1000.resource-dir "${ROOT_DIR}/data/hybench/sf1000/resource")"
+      CDC_TABLES_RAW="$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)"
+      ;;
+    chbenchmark_wh10000|chbenchmark_w10000|chbenchmark10000|wh10000|w10000)
+      STATE_DIR="$(pixels_get_property pixels.cdc.chbenchmark.w10000.state-dir /home/ubuntu/disk1/tmp/chbenchmark_w10000_cdc_state)"
+      LOG_DIR="$(pixels_get_property pixels.cdc.chbenchmark.w10000.log-dir /home/ubuntu/disk1/tmp/chbenchmark_w10000_cdc_logs)"
+      METRICS_DIR="$(pixels_get_property pixels.cdc.chbenchmark.w10000.metrics-dir /home/ubuntu/disk1/tmp/chbenchmark_w10000_cdc_metrics)"
+      RESOURCE_DIR="$(pixels_get_property pixels.cdc.chbenchmark.w10000.resource-dir "${ROOT_DIR}/data/chbenchmark/w10000/resource")"
+      CDC_TABLES_RAW="$(pixels_get_property pixels.import.chbenchmark.tables warehouse,district,customer,history,neworder,order,orderline,item,stock,nation,supplier,region)"
+      ;;
+    *)
+      echo "Unsupported PROFILE=${PROFILE_RAW}. Use hybench_sf10, hybench_sf1000, or chbenchmark_w10000." >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_profile
+pixels_split_csv_property "${CDC_TABLES_RAW}" TABLES
 SYSTEM_CSV="${METRICS_DIR}/system.csv"
 RESOURCE_CSV="${RESOURCE_DIR}/${RESOURCE_FILE}"
-INTERVAL="${1:-5}"
-CDC_TABLES_RAW="$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)"
-TABLES=()
-pixels_split_csv_property "${CDC_TABLES_RAW}" TABLES
 
 mkdir -p "${STATE_DIR}" "${LOG_DIR}" "${METRICS_DIR}" "${RESOURCE_DIR}"
 
-if [[ ! -f "${SYSTEM_CSV}" ]]; then
-  echo "ts,load1,mem_used_mb,mem_avail_mb,disk_used_pct" > "${SYSTEM_CSV}"
-fi
+ensure_csv_header() {
+  local path="$1"
+  local header="$2"
+  if [[ ! -f "${path}" ]] || [[ "$(head -n 1 "${path}" 2>/dev/null || true)" != "${header}" ]]; then
+    printf '%s\n' "${header}" > "${path}"
+  fi
+}
 
-if [[ ! -f "${RESOURCE_CSV}" ]]; then
-  echo "time,cpu,jvm_heap,jvm_managed,jvm_direct,jvm_noheap" > "${RESOURCE_CSV}"
-fi
+ensure_csv_header "${SYSTEM_CSV}" "${SYSTEM_CSV_HEADER}"
+ensure_csv_header "${RESOURCE_CSV}" "${RESOURCE_CSV_HEADER}"
 
 format_mib_as_gib_or_mib() {
   local mib="$1"
@@ -76,6 +133,158 @@ extract_jvm_heap_and_noheap_mib() {
   printf '%s %s\n' "${heap_mib}" "${noheap_mib}"
 }
 
+detect_primary_interface() {
+  local route_iface
+  route_iface="$(ip route show default 2>/dev/null | awk 'NR==1 {for (i=1; i<=NF; i++) if ($i == "dev") {print $(i+1); exit}}')"
+  if [[ -n "${route_iface}" ]]; then
+    printf '%s\n' "${route_iface}"
+    return 0
+  fi
+
+  awk -F: '
+    $1 !~ /lo/ {
+      gsub(/^[ \t]+/, "", $1);
+      print $1;
+      exit
+    }
+  ' /proc/net/dev 2>/dev/null || true
+}
+
+detect_primary_disk() {
+  local source_device base_device parent_device
+  source_device="$(df -P "${TMP_ROOT}" 2>/dev/null | awk 'NR==2 {print $1}')"
+  if [[ "${source_device}" == /dev/* ]]; then
+    base_device="${source_device#/dev/}"
+    parent_device="$(lsblk -no PKNAME "/dev/${base_device}" 2>/dev/null | awk 'NF {print $1; exit}')"
+    if [[ -n "${parent_device}" ]]; then
+      printf '%s\n' "${parent_device}"
+      return 0
+    fi
+    printf '%s\n' "${base_device}"
+    return 0
+  fi
+
+  awk '$3 == "disk" {print $1; exit}' /proc/diskstats 2>/dev/null || true
+}
+
+init_io_targets() {
+  if [[ -z "${PRIMARY_IFACE}" ]]; then
+    if [[ "${NETWORK_INTERFACE}" == "auto" ]]; then
+      PRIMARY_IFACE="$(detect_primary_interface)"
+    else
+      PRIMARY_IFACE="${NETWORK_INTERFACE}"
+    fi
+  fi
+
+  if [[ -z "${PRIMARY_DISK}" ]]; then
+    if [[ "${DISK_DEVICE}" == "auto" ]]; then
+      PRIMARY_DISK="$(detect_primary_disk)"
+    else
+      PRIMARY_DISK="${DISK_DEVICE#/dev/}"
+    fi
+  fi
+}
+
+read_network_bytes() {
+  local iface="$1"
+  if [[ -z "${iface}" ]]; then
+    printf '0 0\n'
+    return 0
+  fi
+
+  awk -v iface="${iface}" -F'[: ]+' '
+    $2 == iface {
+      print $3, $11;
+      found = 1;
+      exit
+    }
+    END {
+      if (!found) print "0 0";
+    }
+  ' /proc/net/dev
+}
+
+read_disk_sectors() {
+  local disk="$1"
+  if [[ -z "${disk}" ]]; then
+    printf '0 0\n'
+    return 0
+  fi
+
+  awk -v disk="${disk}" '
+    $3 == disk {
+      print $6, $10;
+      found = 1;
+      exit
+    }
+    END {
+      if (!found) print "0 0";
+    }
+  ' /proc/diskstats
+}
+
+format_rate_mbps() {
+  local current="$1"
+  local previous="$2"
+  local interval="$3"
+  awk -v current="${current:-0}" -v previous="${previous:-0}" -v interval="${interval:-1}" '
+    BEGIN {
+      if (interval <= 0) {
+        printf "0.00";
+      } else {
+        delta = current - previous;
+        if (delta < 0) delta = 0;
+        printf "%.2f", (delta * 8.0) / (interval * 1000000.0);
+      }
+    }
+  '
+}
+
+format_sector_rate_mbps() {
+  local current="$1"
+  local previous="$2"
+  local interval="$3"
+  local sector_bytes="$4"
+  awk -v current="${current:-0}" -v previous="${previous:-0}" -v interval="${interval:-1}" -v sector_bytes="${sector_bytes:-512}" '
+    BEGIN {
+      if (interval <= 0) {
+        printf "0.00";
+      } else {
+        delta = current - previous;
+        if (delta < 0) delta = 0;
+        bytes = delta * sector_bytes;
+        printf "%.2f", (bytes * 8.0) / (interval * 1000000.0);
+      }
+    }
+  '
+}
+
+sample_io_rates() {
+  init_io_targets
+
+  local net_rx_bytes net_tx_bytes disk_read_sectors disk_write_sectors
+  read -r net_rx_bytes net_tx_bytes <<< "$(read_network_bytes "${PRIMARY_IFACE}")"
+  read -r disk_read_sectors disk_write_sectors <<< "$(read_disk_sectors "${PRIMARY_DISK}")"
+
+  CURRENT_NET_RX_MBPS="0.00"
+  CURRENT_NET_TX_MBPS="0.00"
+  CURRENT_DISK_READ_MBPS="0.00"
+  CURRENT_DISK_WRITE_MBPS="0.00"
+
+  if (( PREV_NET_RX_BYTES > 0 || PREV_NET_TX_BYTES > 0 || PREV_DISK_READ_SECTORS > 0 || PREV_DISK_WRITE_SECTORS > 0 )); then
+    CURRENT_NET_RX_MBPS="$(format_rate_mbps "${net_rx_bytes}" "${PREV_NET_RX_BYTES}" "${INTERVAL}")"
+    CURRENT_NET_TX_MBPS="$(format_rate_mbps "${net_tx_bytes}" "${PREV_NET_TX_BYTES}" "${INTERVAL}")"
+    CURRENT_DISK_READ_MBPS="$(format_sector_rate_mbps "${disk_read_sectors}" "${PREV_DISK_READ_SECTORS}" "${INTERVAL}" "${DISK_SECTOR_BYTES}")"
+    CURRENT_DISK_WRITE_MBPS="$(format_sector_rate_mbps "${disk_write_sectors}" "${PREV_DISK_WRITE_SECTORS}" "${INTERVAL}" "${DISK_SECTOR_BYTES}")"
+  fi
+
+  PREV_NET_RX_BYTES="${net_rx_bytes}"
+  PREV_NET_TX_BYTES="${net_tx_bytes}"
+  PREV_DISK_READ_SECTORS="${disk_read_sectors}"
+  PREV_DISK_WRITE_SECTORS="${disk_write_sectors}"
+
+}
+
 collect_resource_csv() {
   local total_cpu="0"
   local total_heap_mib=0
@@ -100,14 +309,17 @@ collect_resource_csv() {
     total_noheap_mib=$(( total_noheap_mib + ${noheap_mib:-0} ))
     total_managed_mib=$(( total_managed_mib + ${xmx_mib:-0} ))
   done
-
-  printf '%s,%s%%,%s,%s,%s,%s\n' \
+  printf '%s,%s%%,%s,%s,%s,%s,%s,%s,%s,%s\n' \
     "$(date '+%Y/%-m/%-d %H:%M:%S')" \
     "${total_cpu}" \
     "$(format_mib_as_gib_or_mib "${total_heap_mib}")" \
     "$(format_mib_as_gib_or_mib "${total_managed_mib}")" \
     "$(format_mib_as_gib_or_mib "${total_direct_mib}")" \
     "$(format_mib_as_gib_or_mib "${total_noheap_mib}")" \
+    "${CURRENT_NET_RX_MBPS}" \
+    "${CURRENT_NET_TX_MBPS}" \
+    "${CURRENT_DISK_READ_MBPS}" \
+    "${CURRENT_DISK_WRITE_MBPS}" \
     >> "${RESOURCE_CSV}"
 }
 
@@ -198,11 +410,22 @@ collect_system() {
   mem_used="${used}"
   mem_avail="${avail}"
   disk_pct="$(df -P "${TMP_ROOT}" | awk 'NR==2 {gsub(/%/, "", $5); print $5}')"
-  printf '%s,%s,%s,%s,%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${load1}" "${mem_used}" "${mem_avail}" "${disk_pct}" >> "${SYSTEM_CSV}"
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "${load1}" \
+    "${mem_used}" \
+    "${mem_avail}" \
+    "${disk_pct}" \
+    "${CURRENT_NET_RX_MBPS}" \
+    "${CURRENT_NET_TX_MBPS}" \
+    "${CURRENT_DISK_READ_MBPS}" \
+    "${CURRENT_DISK_WRITE_MBPS}" \
+    >> "${SYSTEM_CSV}"
 }
 
 main() {
   while true; do
+    sample_io_rates
     collect_system
     collect_resource_csv
 

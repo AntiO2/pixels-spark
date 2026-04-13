@@ -51,7 +51,10 @@ public class PixelsPartitionReader implements PartitionReader<InternalRow>
                 if (!polled.isEmpty())
                 {
                     records.addAll(polled);
-                    deadline = System.currentTimeMillis() + maxWaitMs;
+                    if (options.shouldRefreshMaxWaitOnNonEmptyPoll())
+                    {
+                        deadline = System.currentTimeMillis() + maxWaitMs;
+                    }
 
                     if (records.size() >= options.getMaxRowsPerBatch())
                     {

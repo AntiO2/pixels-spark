@@ -6,13 +6,13 @@ OPT_ROOT=/home/ubuntu/disk1/opt
 export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-$ROOT/etc/pixels-spark.properties}"
 source "$ROOT/scripts/lib/pixels-config.sh"
 
-CSV_ROOT="${1:-$(pixels_get_property pixels.import.hybench.sf10.csv-root /home/ubuntu/disk1/hybench_sf10)}"
-TARGET_ROOT="${2:-$(pixels_get_property pixels.import.hybench.sf10.target-root s3a://home-zinuo/deltalake/hybench_sf10)}"
-LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.import.hybench.sf10.log-dir /home/ubuntu/disk1/tmp/hybench_sf10_import_logs)}"
-STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.import.hybench.sf10.state-dir /home/ubuntu/disk1/tmp/hybench_sf10_import_state)}"
+CSV_ROOT="${1:-$(pixels_get_property pixels.import.chbenchmark.w1.csv-root /home/ubuntu/disk1/ch_w1)}"
+TARGET_ROOT="${2:-$(pixels_get_property pixels.import.chbenchmark.w1.target-root s3a://home-zinuo/deltalake/chbenchmark_w1)}"
+LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.import.chbenchmark.w1.log-dir /home/ubuntu/disk1/tmp/chbenchmark_w1_import_logs)}"
+STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.import.chbenchmark.w1.state-dir /home/ubuntu/disk1/tmp/chbenchmark_w1_import_state)}"
 PID_FILE="$STATE_DIR/import.pid"
 TABLES=()
-pixels_split_csv_property "$(pixels_get_property pixels.import.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)" TABLES
+pixels_split_csv_property "$(pixels_get_property pixels.import.chbenchmark.tables warehouse,district,customer,history,neworder,order,orderline,item,stock,nation,supplier,region)" TABLES
 SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[4])}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-$(pixels_get_property pixels.import.spark.driver.memory 20g)}"
 SPARK_SHUFFLE_PARTITIONS="${SPARK_SHUFFLE_PARTITIONS:-$(pixels_get_property pixels.import.spark.shuffle.partitions 32)}"
@@ -61,7 +61,7 @@ for table_name in "${TABLES[@]}"; do
     "$TARGET_ROOT" \
     "$SPARK_MASTER" \
     "$table_name" \
-    hybench \
+    chbenchmark \
     2>&1 | tee "$LOG_DIR/${table_name}.log"
 
   touch "$STATE_DIR/${table_name}.done"

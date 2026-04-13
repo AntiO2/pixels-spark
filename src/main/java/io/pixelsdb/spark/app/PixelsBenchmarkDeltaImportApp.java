@@ -1,18 +1,15 @@
 package io.pixelsdb.spark.app;
 
+import io.pixelsdb.spark.benchmark.BenchmarkTableDefinition;
+import io.pixelsdb.spark.benchmark.BenchmarkTableRegistry;
 import io.pixelsdb.spark.bucket.PixelsBucketId;
 import io.pixelsdb.spark.config.PixelsSparkConfig;
 import io.pixelsdb.spark.merge.PixelsDeltaMergeColumns;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.Metadata;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,99 +26,7 @@ public class PixelsBenchmarkDeltaImportApp
 {
     private static final String DELTA_ENABLE_DELETION_VECTORS_PROPERTY = "delta.enableDeletionVectors";
     private static final String IMPORT_CHUNK_TEMP_DIR = "pixels.import.chunk-temp-dir";
-
-    private static final TableSpec[] TABLE_SPECS = new TableSpec[] {
-            new TableSpec("customer", "customer.csv", new StructType(new StructField[] {
-                    field("custID", DataTypes.IntegerType),
-                    field("companyID", DataTypes.IntegerType),
-                    field("gender", DataTypes.StringType),
-                    field("name", DataTypes.StringType),
-                    field("age", DataTypes.IntegerType),
-                    field("phone", DataTypes.StringType),
-                    field("province", DataTypes.StringType),
-                    field("city", DataTypes.StringType),
-                    field("loan_balance", DataTypes.FloatType),
-                    field("saving_credit", DataTypes.IntegerType),
-                    field("checking_credit", DataTypes.IntegerType),
-                    field("loan_credit", DataTypes.IntegerType),
-                    field("Isblocked", DataTypes.IntegerType),
-                    field("created_date", DataTypes.DateType),
-                    field("last_update_timestamp", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "custID"),
-            new TableSpec("company", "company.csv", new StructType(new StructField[] {
-                    field("companyID", DataTypes.IntegerType),
-                    field("name", DataTypes.StringType),
-                    field("category", DataTypes.StringType),
-                    field("staff_size", DataTypes.IntegerType),
-                    field("loan_balance", DataTypes.FloatType),
-                    field("phone", DataTypes.StringType),
-                    field("province", DataTypes.StringType),
-                    field("city", DataTypes.StringType),
-                    field("saving_credit", DataTypes.IntegerType),
-                    field("checking_credit", DataTypes.IntegerType),
-                    field("loan_credit", DataTypes.IntegerType),
-                    field("Isblocked", DataTypes.IntegerType),
-                    field("created_date", DataTypes.DateType),
-                    field("last_update_timestamp", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "companyID"),
-            new TableSpec("savingaccount", "savingAccount.csv", new StructType(new StructField[] {
-                    field("accountID", DataTypes.IntegerType),
-                    field("userID", DataTypes.IntegerType),
-                    field("balance", DataTypes.FloatType),
-                    field("Isblocked", DataTypes.IntegerType),
-                    field("ts", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "accountID"),
-            new TableSpec("checkingaccount", "checkingAccount.csv", new StructType(new StructField[] {
-                    field("accountID", DataTypes.IntegerType),
-                    field("userID", DataTypes.IntegerType),
-                    field("balance", DataTypes.FloatType),
-                    field("Isblocked", DataTypes.IntegerType),
-                    field("ts", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "accountID"),
-            new TableSpec("transfer", "transfer.csv", new StructType(new StructField[] {
-                    field("id", DataTypes.LongType),
-                    field("sourceID", DataTypes.IntegerType),
-                    field("targetID", DataTypes.IntegerType),
-                    field("amount", DataTypes.FloatType),
-                    field("type", DataTypes.StringType),
-                    field("ts", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "id"),
-            new TableSpec("checking", "checking.csv", new StructType(new StructField[] {
-                    field("id", DataTypes.IntegerType),
-                    field("sourceID", DataTypes.IntegerType),
-                    field("targetID", DataTypes.IntegerType),
-                    field("amount", DataTypes.FloatType),
-                    field("type", DataTypes.StringType),
-                    field("ts", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "id"),
-            new TableSpec("loanapps", "loanApps.csv", new StructType(new StructField[] {
-                    field("id", DataTypes.IntegerType),
-                    field("applicantID", DataTypes.IntegerType),
-                    field("amount", DataTypes.FloatType),
-                    field("duration", DataTypes.IntegerType),
-                    field("status", DataTypes.StringType),
-                    field("ts", DataTypes.TimestampType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "id"),
-            new TableSpec("loantrans", "loanTrans.csv", new StructType(new StructField[] {
-                    field("id", DataTypes.IntegerType),
-                    field("applicantID", DataTypes.IntegerType),
-                    field("appID", DataTypes.IntegerType),
-                    field("amount", DataTypes.FloatType),
-                    field("status", DataTypes.StringType),
-                    field("ts", DataTypes.TimestampType),
-                    field("duration", DataTypes.IntegerType),
-                    field("contract_timestamp", DataTypes.TimestampType),
-                    field("delinquency", DataTypes.IntegerType),
-                    field("freshness_ts", DataTypes.TimestampType)
-            }), "id")
-    };
+    private static final String IMPORT_BENCHMARK = "pixels.import.benchmark";
 
     public static void main(String[] args)
     {
@@ -130,7 +35,32 @@ public class PixelsBenchmarkDeltaImportApp
                 : PixelsSparkConfig.instance().getOrDefault("pixels.import.local.delta-root",
                 "/home/ubuntu/disk1/tmp/pixels-benchmark-deltalake/data_1x");
         String sparkMaster = args.length > 2 ? args[2] : PixelsSparkConfig.instance().get(PixelsSparkConfig.SPARK_MASTER);
-        Set<String> selectedTables = parseSelectedTables(args.length > 3 ? args[3] : null);
+        String selectedTablesArg = null;
+        String benchmarkArg = null;
+        if (args.length > 4)
+        {
+            selectedTablesArg = args[3];
+            benchmarkArg = args[4];
+        }
+        else if (args.length > 3)
+        {
+            String arg3 = args[3];
+            if (BenchmarkTableRegistry.BENCHMARK_HYBENCH.equalsIgnoreCase(arg3)
+                    || BenchmarkTableRegistry.BENCHMARK_CHBENCHMARK.equalsIgnoreCase(arg3))
+            {
+                benchmarkArg = arg3;
+            }
+            else
+            {
+                selectedTablesArg = arg3;
+            }
+        }
+
+        Set<String> selectedTables = parseSelectedTables(selectedTablesArg);
+        String benchmark = BenchmarkTableRegistry.normalizeBenchmark(benchmarkArg != null ? benchmarkArg
+                : PixelsSparkConfig.instance().getOrDefault(
+                IMPORT_BENCHMARK,
+                BenchmarkTableRegistry.BENCHMARK_HYBENCH));
         int chunkRows = PixelsSparkConfig.instance()
                 .getIntOrDefault(PixelsSparkConfig.IMPORT_CSV_CHUNK_ROWS, 2560000);
         boolean countRows = PixelsSparkConfig.instance()
@@ -138,6 +68,8 @@ public class PixelsBenchmarkDeltaImportApp
         int bucketCount = PixelsSparkConfig.instance().getIntOrDefault("node.bucket.num", 0);
         boolean enableDeletionVectors = PixelsSparkConfig.instance()
                 .getBooleanOrDefault(PixelsSparkConfig.DELTA_ENABLE_DELETION_VECTORS, true);
+
+        List<BenchmarkTableDefinition> tableDefinitions = BenchmarkTableRegistry.list(benchmark);
 
         SparkSession.Builder builder = SparkSession.builder()
                 .appName("pixels-benchmark-delta-import")
@@ -152,17 +84,17 @@ public class PixelsBenchmarkDeltaImportApp
         SparkSession spark = builder.getOrCreate();
         try
         {
-            for (TableSpec spec : TABLE_SPECS)
+            for (BenchmarkTableDefinition definition : tableDefinitions)
             {
-                if (selectedTables != null && !selectedTables.contains(spec.tableName))
+                if (selectedTables != null && !selectedTables.contains(definition.getTableName()))
                 {
                     continue;
                 }
-                String csvPath = csvRoot + "/" + spec.fileName;
-                String deltaPath = deltaRoot + "/" + spec.tableName;
+                String csvPath = csvRoot + "/" + definition.getFileName();
+                String deltaPath = deltaRoot + "/" + definition.getTableName();
                 long rowCount = importTableInChunks(
                         spark,
-                        spec,
+                        definition,
                         csvPath,
                         deltaPath,
                         bucketCount,
@@ -170,9 +102,10 @@ public class PixelsBenchmarkDeltaImportApp
                         chunkRows,
                         countRows);
 
-                System.out.println("table=" + spec.tableName
+                System.out.println("table=" + definition.getTableName()
                         + " csv_path=" + csvPath
                         + " delta_path=" + deltaPath
+                        + " benchmark=" + benchmark
                         + " bucket_count=" + bucketCount
                         + " deletion_vectors=" + enableDeletionVectors
                         + " chunk_rows=" + chunkRows
@@ -206,7 +139,7 @@ public class PixelsBenchmarkDeltaImportApp
 
     private static long importTableInChunks(
             SparkSession spark,
-            TableSpec spec,
+            BenchmarkTableDefinition definition,
             String csvPath,
             String deltaPath,
             int bucketCount,
@@ -218,12 +151,13 @@ public class PixelsBenchmarkDeltaImportApp
         {
             Dataset<Row> dataset = spark.read()
                     .format("csv")
-                    .schema(spec.schema)
+                    .schema(definition.getSchema())
                     .option("header", "false")
                     .option("mode", "FAILFAST")
                     .option("nullValue", "")
+                    .option("delimiter", definition.getDelimiter())
                     .load(csvPath);
-            Dataset<Row> output = withHashBucketColumn(dataset, spec, bucketCount);
+            Dataset<Row> output = withHashBucketColumn(dataset, definition, bucketCount);
             if (bucketCount > 0)
             {
                 output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
@@ -263,13 +197,14 @@ public class PixelsBenchmarkDeltaImportApp
 
                 Dataset<Row> chunk = spark.read()
                         .format("csv")
-                        .schema(spec.schema)
+                        .schema(definition.getSchema())
                         .option("header", "false")
                         .option("mode", "FAILFAST")
                         .option("nullValue", "")
+                        .option("delimiter", definition.getDelimiter())
                         .load(chunkPath.toString());
 
-                Dataset<Row> output = withHashBucketColumn(chunk, spec, bucketCount);
+                Dataset<Row> output = withHashBucketColumn(chunk, definition, bucketCount);
                 if (bucketCount > 0)
                 {
                     output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
@@ -352,29 +287,15 @@ public class PixelsBenchmarkDeltaImportApp
         writer.save(deltaPath);
     }
 
-    private static Dataset<Row> withHashBucketColumn(Dataset<Row> dataset, TableSpec spec, int bucketCount)
+    private static Dataset<Row> withHashBucketColumn(
+            Dataset<Row> dataset,
+            BenchmarkTableDefinition definition,
+            int bucketCount)
     {
-        return PixelsBucketId.withBucketColumnFromSchema(dataset, spec.primaryKeyColumns, spec.schema, bucketCount);
-    }
-
-    private static StructField field(String name, org.apache.spark.sql.types.DataType dataType)
-    {
-        return DataTypes.createStructField(name, dataType, true, Metadata.empty());
-    }
-
-    private static final class TableSpec
-    {
-        private final String tableName;
-        private final String fileName;
-        private final StructType schema;
-        private final List<String> primaryKeyColumns;
-
-        private TableSpec(String tableName, String fileName, StructType schema, String... primaryKeyColumns)
-        {
-            this.tableName = tableName;
-            this.fileName = fileName;
-            this.schema = schema;
-            this.primaryKeyColumns = Arrays.asList(primaryKeyColumns);
-        }
+        return PixelsBucketId.withBucketColumnFromSchema(
+                dataset,
+                definition.getPrimaryKeyColumns(),
+                definition.getSchema(),
+                bucketCount);
     }
 }

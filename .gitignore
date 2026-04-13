@@ -181,4 +181,20 @@ __pycache__
 profiles/*.html
 data/hybench/*/resource/*.csv
 
+# Project runtime artifacts
+derby.log
+*.pid
+scripts/__pycache__/
+
+# Local benchmark data and generated profiles
+/data/
+/profiles/
+
+# Local Spark and CDC runtime outputs
+/checkpoint/
+/checkpoints/
+/metastore_db/
+/spark-warehouse/
+/tmp/
+
 # End of https://www.toptal.com/developers/gitignore/api/intellij,java,linux,visualstudiocode

@@ -2,12 +2,13 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-`pixels-spark` 是一个面向 Pixels CDC 流的 Spark Structured Streaming 连接器与 Delta Lake merge 管线。
+`pixels-spark` 是一个面向 Pixels 工作负载的 Spark CDC 与 Delta Lake 导入 / merge 管线。
 
 它提供两类核心能力：
 
-- 使用 `spark.readStream.format("pixels")` 从 Pixels RPC 服务读取 CDC 记录
-- 从 Pixels metadata service 自动加载主键，并将 CDC 记录 merge 到 Delta Lake 表中
+- 从 Pixels RPC 服务读取 CDC 记录
+- 使用本地 benchmark 表定义将 CDC 记录 merge 到 Delta Lake 表中
+- 导入与 CDC 共用同一份 benchmark 表定义
 
 ## 功能特性
 

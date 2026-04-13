@@ -1,5 +1,6 @@
 package io.pixelsdb.spark.source;
 
+import io.pixelsdb.spark.benchmark.BenchmarkTableRegistry;
 import io.pixelsdb.spark.config.PixelsSparkConfig;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
@@ -15,22 +16,26 @@ public class PixelsSourceOptions implements Serializable
     public static final String PORT = "pixels.port";
     public static final String DATABASE = "pixels.database";
     public static final String TABLE = "pixels.table";
+    public static final String BENCHMARK = "pixels.benchmark";
     public static final String BUCKETS = "pixels.buckets";
     public static final String METADATA_HOST = "metadata.host";
     public static final String METADATA_PORT = "metadata.port";
     public static final String MAX_ROWS_PER_BATCH = "pixels.maxRowsPerBatch";
     public static final String MAX_WAIT_MS_PER_BATCH = "pixels.maxWaitMsPerBatch";
+    public static final String REFRESH_MAX_WAIT_ON_NON_EMPTY_POLL = "pixels.refreshMaxWaitOnNonEmptyPoll";
     public static final String EMPTY_POLL_SLEEP_MS = "pixels.emptyPollSleepMs";
 
     private final String host;
     private final int port;
     private final String database;
     private final String table;
+    private final String benchmark;
     private final List<Integer> buckets;
     private final String metadataHost;
     private final Integer metadataPort;
     private final int maxRowsPerBatch;
     private final long maxWaitMsPerBatch;
+    private final boolean refreshMaxWaitOnNonEmptyPoll;
     private final long emptyPollSleepMs;
 
     public PixelsSourceOptions(CaseInsensitiveStringMap options)
@@ -46,6 +51,9 @@ public class PixelsSourceOptions implements Serializable
                 String.valueOf(config.getIntOrDefault(PixelsSparkConfig.RPC_PORT, 9091))));
         this.database = require(options, DATABASE);
         this.table = require(options, TABLE);
+        this.benchmark = BenchmarkTableRegistry.normalizeBenchmark(firstNonEmpty(
+                options.get(BENCHMARK),
+                config.getOrDefault(PixelsSparkConfig.CDC_BENCHMARK, BenchmarkTableRegistry.BENCHMARK_HYBENCH)));
         this.buckets = parseBuckets(options.get(BUCKETS), config);
         this.metadataHost = firstNonEmpty(options.get(METADATA_HOST), config.get(PixelsSparkConfig.METADATA_HOST));
         String metadataPortValue = firstNonEmpty(options.get(METADATA_PORT), config.get(PixelsSparkConfig.METADATA_PORT));
@@ -54,6 +62,10 @@ public class PixelsSourceOptions implements Serializable
                 String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_MAX_ROWS_PER_BATCH, 100000)))));
         this.maxWaitMsPerBatch = Math.max(0L, Long.parseLong(firstNonEmpty(options.get(MAX_WAIT_MS_PER_BATCH),
                 String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_MAX_WAIT_MS_PER_BATCH, 1000)))));
+        this.refreshMaxWaitOnNonEmptyPoll = Boolean.parseBoolean(firstNonEmpty(
+                options.get(REFRESH_MAX_WAIT_ON_NON_EMPTY_POLL),
+                String.valueOf(config.getBooleanOrDefault(
+                        PixelsSparkConfig.SOURCE_REFRESH_MAX_WAIT_ON_NON_EMPTY_POLL, false))));
         this.emptyPollSleepMs = Math.max(0L, Long.parseLong(firstNonEmpty(options.get(EMPTY_POLL_SLEEP_MS),
                 String.valueOf(config.getIntOrDefault(PixelsSparkConfig.SOURCE_EMPTY_POLL_SLEEP_MS, 100)))));
     }
@@ -76,6 +88,11 @@ public class PixelsSourceOptions implements Serializable
     public String getTable()
     {
         return table;
+    }
+
+    public String getBenchmark()
+    {
+        return benchmark;
     }
 
     public List<Integer> getBuckets()
@@ -101,6 +118,11 @@ public class PixelsSourceOptions implements Serializable
     public long getMaxWaitMsPerBatch()
     {
         return maxWaitMsPerBatch;
+    }
+
+    public boolean shouldRefreshMaxWaitOnNonEmptyPoll()
+    {
+        return refreshMaxWaitOnNonEmptyPoll;
     }
 
     public long getEmptyPollSleepMs()

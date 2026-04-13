@@ -61,6 +61,7 @@ for table_name in "${TABLES[@]}"; do
     "$TARGET_ROOT" \
     "$SPARK_MASTER" \
     "$table_name" \
+    hybench \
     2>&1 | tee "$LOG_DIR/${table_name}.log"
 
   touch "$STATE_DIR/${table_name}.done"
