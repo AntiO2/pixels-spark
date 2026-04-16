@@ -14,8 +14,8 @@ METRICS_DIR="${METRICS_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.
 RESOURCE_DIR="${RESOURCE_DIR:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.resource-dir ${ROOT_DIR}/data/hybench/sf1000/resource)}"
 SPARK_EVENTS_DIR="${SPARK_EVENTS_DIR:-$(pixels_get_property pixels.spark.event-log.dir /home/ubuntu/disk1/tmp/spark-events)}"
 TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.target-root s3a://home-zinuo/deltalake/hybench_sf1000)}"
-DATABASE="${DATABASE:-$(pixels_get_property pixels.cdc.database pixels_bench)}"
-CDC_BENCHMARK="${CDC_BENCHMARK:-$(pixels_get_property pixels.cdc.benchmark hybench)}"
+DATABASE="${DATABASE:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.database "$(pixels_get_property pixels.cdc.database pixels_bench)")}"
+CDC_BENCHMARK="${CDC_BENCHMARK:-$(pixels_get_property pixels.cdc.hybench.${PROFILE}.benchmark hybench)}"
 RPC_HOST="${RPC_HOST:-$(pixels_get_property pixels.spark.rpc.host 127.0.0.1)}"
 RPC_PORT="${RPC_PORT:-$(pixels_get_property pixels.spark.rpc.port 9091)}"
 METADATA_HOST="${METADATA_HOST:-$(pixels_get_property pixels.spark.metadata.host 127.0.0.1)}"
@@ -28,7 +28,7 @@ DELETE_MODE="${DELETE_MODE:-$(pixels_get_property pixels.spark.delta.delete.mode
 SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.delta.sink-mode delta)}"
 NOOP_BUCKETS="${NOOP_BUCKETS:-$(pixels_get_property pixels.spark.delta.noop-buckets "")}"
 TABLES=()
-pixels_split_csv_property "$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)" TABLES
+pixels_split_csv_property "$(pixels_get_property pixels.cdc.hybench.${PROFILE}.tables "$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)")" TABLES
 
 mkdir -p "${STATE_DIR}" "${LOG_DIR}" "${CKPT_ROOT}" "${METRICS_DIR}" "${RESOURCE_DIR}" "${SPARK_EVENTS_DIR}"
 
