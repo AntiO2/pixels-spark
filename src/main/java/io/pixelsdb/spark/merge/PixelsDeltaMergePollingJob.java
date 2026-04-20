@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 public final class PixelsDeltaMergePollingJob
 {
     private static final Logger LOG = LoggerFactory.getLogger(PixelsDeltaMergePollingJob.class);
+    private static final long WORKER_RETRY_SLEEP_MS = 1000L;
 
     private PixelsDeltaMergePollingJob()
     {
@@ -73,6 +74,12 @@ public final class PixelsDeltaMergePollingJob
                 {
                     return;
                 }
+
+                if (!isOneShot(options) && allWorkersStopped(states) && emittedBatches.isEmpty())
+                {
+                    throw new IllegalStateException("All polling workers stopped for table "
+                            + options.getDatabase() + "." + options.getTable());
+                }
             }
         }
         catch (InterruptedException e)
@@ -98,25 +105,52 @@ public final class PixelsDeltaMergePollingJob
         {
             while (!Thread.currentThread().isInterrupted())
             {
-                PixelsPollingBatchFetcher.BucketBatch batch =
-                        PixelsPollingBatchFetcher.pollBucket(sourceOptions, state.bucketId);
-                if (!batch.isEmpty())
+                try
                 {
-                    emittedBatches.put(new EmittedBatch(batch.getBucketId(), batch.getRows()));
+                    PixelsPollingBatchFetcher.BucketBatch batch =
+                            PixelsPollingBatchFetcher.pollBucket(sourceOptions, state.bucketId);
+                    if (!batch.isEmpty())
+                    {
+                        LOG.info("pollingQueuePutStart table={}.{} bucket={} rows={} queueSize={}",
+                                sourceOptions.getDatabase(),
+                                sourceOptions.getTable(),
+                                state.bucketId,
+                                batch.size(),
+                                emittedBatches.size());
+                        emittedBatches.put(new EmittedBatch(batch.getBucketId(), batch.getRows()));
+                        LOG.info("pollingQueuePutEnd table={}.{} bucket={} rows={} queueSize={}",
+                                sourceOptions.getDatabase(),
+                                sourceOptions.getTable(),
+                                state.bucketId,
+                                batch.size(),
+                                emittedBatches.size());
+                    }
+                    if (oneShot)
+                    {
+                        return;
+                    }
                 }
-                if (oneShot)
+                catch (InterruptedException e)
                 {
-                    return;
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                catch (Exception e)
+                {
+                    LOG.warn("bucket polling failed bucket={} table={}.{}; retrying after {} ms",
+                            state.bucketId, sourceOptions.getDatabase(), sourceOptions.getTable(),
+                            WORKER_RETRY_SLEEP_MS, e);
+                    try
+                    {
+                        Thread.sleep(WORKER_RETRY_SLEEP_MS);
+                    }
+                    catch (InterruptedException interrupted)
+                    {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
-        }
-        catch (InterruptedException e)
-        {
-            Thread.currentThread().interrupt();
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException("bucket polling failed bucket=" + state.bucketId, e);
         }
         finally
         {

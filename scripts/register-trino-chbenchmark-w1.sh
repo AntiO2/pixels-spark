@@ -8,7 +8,7 @@ source "${ROOT_DIR}/scripts/lib/pixels-config.sh"
 TRINO_CLI="${TRINO_CLI:-/home/ubuntu/disk1/opt/trino-cli/trino}"
 TRINO_SERVER="${TRINO_SERVER:-http://127.0.0.1:8080}"
 
-CATALOG="${1:-$(pixels_get_property pixels.trino.chbenchmark.w1.catalog chbench_wh1)}"
+CATALOG="${1:-$(pixels_get_property pixels.trino.chbenchmark.w1.catalog delta_lake)}"
 SCHEMA="${2:-$(pixels_get_property pixels.trino.chbenchmark.w1.schema chbenchmark_w1)}"
 TARGET_ROOT="${3:-$(pixels_get_property pixels.trino.chbenchmark.w1.target-root s3://home-zinuo/deltalake/chBench_wh1)}"
 TABLES=()

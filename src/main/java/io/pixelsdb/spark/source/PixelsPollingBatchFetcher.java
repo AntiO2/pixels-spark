@@ -110,10 +110,22 @@ public final class PixelsPollingBatchFetcher
         {
             while (rows.size() < bucketOptions.getMaxRowsPerBatch())
             {
+                LOG.info("pollingFetchStart table={}.{} bucket={} currentRows={} maxRowsPerBatch={}",
+                        bucketOptions.getDatabase(),
+                        bucketOptions.getTable(),
+                        bucketId,
+                        rows.size(),
+                        bucketOptions.getMaxRowsPerBatch());
                 List<SinkProto.RowRecord> polled = client.pollEvents(
                         bucketOptions.getDatabase(),
                         bucketOptions.getTable(),
                         bucketOptions.getBuckets());
+                LOG.info("pollingFetchEnd table={}.{} bucket={} polledRows={} accumulatedRows={}",
+                        bucketOptions.getDatabase(),
+                        bucketOptions.getTable(),
+                        bucketId,
+                        polled.size(),
+                        rows.size());
                 if (!polled.isEmpty())
                 {
                     for (SinkProto.RowRecord rowRecord : polled)

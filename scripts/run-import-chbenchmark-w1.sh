@@ -7,7 +7,7 @@ export PIXELS_SPARK_CONFIG="${PIXELS_SPARK_CONFIG:-$ROOT/etc/pixels-spark.proper
 source "$ROOT/scripts/lib/pixels-config.sh"
 
 CSV_ROOT="${1:-$(pixels_get_property pixels.import.chbenchmark.w1.csv-root /home/ubuntu/disk1/ch_w1)}"
-TARGET_ROOT="${2:-$(pixels_get_property pixels.import.chbenchmark.w1.target-root s3a://home-zinuo/deltalake/chbenchmark_w1)}"
+TARGET_ROOT="${2:-$(pixels_get_property pixels.import.chbenchmark.w1.target-root s3a://home-zinuo/deltalake/chBench_wh1)}"
 LOG_DIR="${LOG_DIR:-$(pixels_get_property pixels.import.chbenchmark.w1.log-dir /home/ubuntu/disk1/tmp/chbenchmark_w1_import_logs)}"
 STATE_DIR="${STATE_DIR:-$(pixels_get_property pixels.import.chbenchmark.w1.state-dir /home/ubuntu/disk1/tmp/chbenchmark_w1_import_state)}"
 PID_FILE="$STATE_DIR/import.pid"

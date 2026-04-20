@@ -14,7 +14,7 @@ else
 fi
 
 JAR_PATH="${ROOT_DIR}/target/pixels-spark-0.1.jar"
-TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.hybench.sf10.target-root "$(pixels_get_property pixels.spark.delta.target.path s3a://home-zinuo/deltalake/hybench_sf10)")}"
+TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.hybench.sf1000.target-root "$(pixels_get_property pixels.import.hybench.sf1000.target-root s3a://home-zinuo/deltalake/hybench_sf1000)")}"
 SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[2])}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-32g}"
 SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-16g}"

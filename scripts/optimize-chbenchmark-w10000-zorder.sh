@@ -14,7 +14,7 @@ else
 fi
 
 JAR_PATH="${ROOT_DIR}/target/pixels-spark-0.1.jar"
-TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.hybench.sf10.target-root "$(pixels_get_property pixels.spark.delta.target.path s3a://home-zinuo/deltalake/hybench_sf10)")}"
+TARGET_ROOT="${TARGET_ROOT:-$(pixels_get_property pixels.cdc.chbenchmark.w10000.target-root "$(pixels_get_property pixels.import.chbenchmark.w10000.target-root s3a://home-zinuo/deltalake/chbenchmark_w10000)")}"
 SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[2])}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-32g}"
 SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-16g}"
@@ -47,18 +47,22 @@ AWS_SECRET_ACCESS_KEY="$(awk -F= '/aws_secret_access_key/ {print $2}' /home/ubun
 export AWS_REGION="${AWS_REGION:-us-east-2}"
 
 declare -A ZORDER_COLUMNS=(
-  [customer]="custID,companyID,last_update_timestamp"
-  [company]="companyID,last_update_timestamp"
-  [savingaccount]="accountID,userID,ts"
-  [checkingaccount]="accountID,userID,ts"
-  [transfer]="id,sourceID,targetID,ts"
-  [checking]="id,sourceID,targetID,ts"
-  [loanapps]="id,applicantID,ts"
-  [loantrans]="id,applicantID,appID,ts"
+  [warehouse]="w_id"
+  [district]="d_w_id,d_id"
+  [customer]="c_w_id,c_d_id,c_id,c_last"
+  [history]="h_c_w_id,h_c_d_id,h_c_id,h_w_id,h_d_id"
+  [neworder]="no_w_id,no_d_id,no_o_id"
+  [order]="o_w_id,o_d_id,o_id,o_c_id,o_carrier_id"
+  [orderline]="ol_w_id,ol_d_id,ol_o_id,ol_i_id"
+  [item]="i_id,i_im_id"
+  [stock]="s_w_id,s_i_id,s_quantity,s_su_suppkey"
+  [nation]="n_nationkey,n_regionkey"
+  [supplier]="su_suppkey,su_nationkey"
+  [region]="r_regionkey"
 )
 
 if [[ ${#TABLES[@]} -eq 0 ]]; then
-  TABLES=(customer company savingaccount checkingaccount transfer checking loanapps loantrans)
+  TABLES=(warehouse district customer history neworder order orderline item stock nation supplier region)
 fi
 
 for table_name in "${TABLES[@]}"; do

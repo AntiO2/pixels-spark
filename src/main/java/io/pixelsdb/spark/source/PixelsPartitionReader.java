@@ -47,7 +47,10 @@ public class PixelsPartitionReader implements PartitionReader<InternalRow>
             while (records.size() < options.getMaxRowsPerBatch())
             {
                 List<SinkProto.RowRecord> polled =
-                        client.pollEvents(options.getDatabase(), options.getTable(), options.getBuckets());
+                        client.pollEvents(
+                                options.getDatabase(),
+                                options.getTable(),
+                                options.getBuckets());
                 if (!polled.isEmpty())
                 {
                     records.addAll(polled);

@@ -33,21 +33,31 @@ public class PixelsRpcClient implements Closeable
         this.blockingStub = PixelsPollingServiceGrpc.newBlockingStub(channel);
     }
 
-    public List<SinkProto.RowRecord> pollEvents(String schemaName, String tableName, List<Integer> buckets)
+    public List<SinkProto.RowRecord> pollEvents(
+            String schemaName,
+            String tableName,
+            List<Integer> buckets)
     {
         SinkProto.PollRequest request = SinkProto.PollRequest.newBuilder()
                 .setSchemaName(schemaName)
                 .setTableName(tableName)
                 .addAllBuckets(buckets)
                 .build();
+        long startedAt = System.currentTimeMillis();
         try
         {
             SinkProto.PollResponse pollResponse = blockingStub.pollEvents(request);
-            return pollResponse.getRecordsList();
+            List<SinkProto.RowRecord> records = pollResponse.getRecordsList();
+            long elapsedMs = System.currentTimeMillis() - startedAt;
+            LOG.info("pollEvents schema={} table={} buckets={} rows={} elapsedMs={}",
+                    schemaName, tableName, buckets, records.size(), elapsedMs);
+            return records;
         }
         catch (Exception e)
         {
-            LOG.error("RPC call failed: {}", e.getMessage());
+            long elapsedMs = System.currentTimeMillis() - startedAt;
+            LOG.error("RPC call failed schema={} table={} buckets={} elapsedMs={} error={}",
+                    schemaName, tableName, buckets, elapsedMs, e.getMessage());
             throw e;
         }
     }
