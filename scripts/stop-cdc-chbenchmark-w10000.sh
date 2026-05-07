@@ -21,20 +21,16 @@ stop_table() {
   local pid_file="${STATE_DIR}/${table_name}.pid"
 
   systemctl --user stop "${unit_name}" >/dev/null 2>&1 || true
+  systemctl --user kill --signal=SIGKILL "${unit_name}" >/dev/null 2>&1 || true
 
   if [[ -f "${pid_file}" ]]; then
     local pid
     pid="$(cat "${pid_file}" 2>/dev/null || true)"
     if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-      log "waiting table=${table_name} pid=${pid}"
-      for _ in $(seq 1 10); do
-        if ! kill -0 "${pid}" 2>/dev/null; then
-          break
-        fi
-        sleep 1
-      done
+      log "force-kill table=${table_name} pid=${pid}"
+      kill -9 "${pid}" >/dev/null 2>&1 || true
     fi
-    if [[ -n "${pid}" ]] && ! kill -0 "${pid}" 2>/dev/null; then
+    if [[ -z "${pid}" ]] || ! kill -0 "${pid}" 2>/dev/null; then
       rm -f "${pid_file}"
     fi
   fi

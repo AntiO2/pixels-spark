@@ -1,14 +1,11 @@
 package io.pixelsdb.spark.merge;
 
 import io.delta.tables.DeltaTable;
-import io.pixelsdb.spark.source.PixelsMetadataColumns;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
-import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,43 +21,12 @@ final class PixelsDeltaMergeSupport
 
     static StructType targetSchema(StructType schema, PixelsDeltaMergeOptions options)
     {
-        List<StructField> fields = new ArrayList<>();
-        for (StructField field : schema.fields())
-        {
-            if (!PixelsMetadataColumns.isMetadataColumn(field.name()))
-            {
-                fields.add(field);
-            }
-        }
-        if (isSoftDelete(options))
-        {
-            fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.IS_DELETED, DataTypes.BooleanType, false));
-            fields.add(DataTypes.createStructField(PixelsDeltaMergeColumns.DELETED_AT, DataTypes.TimestampType, true));
-        }
-        return new StructType(fields.toArray(new StructField[0]));
+        return PixelsMergeSupport.targetSchema(schema, options);
     }
 
     static String buildMergeCondition(List<String> primaryKeys)
     {
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < primaryKeys.size(); i++)
-        {
-            if (i > 0)
-            {
-                builder.append(" AND ");
-            }
-            String primaryKey = primaryKeys.get(i);
-            builder.append("t.").append(primaryKey).append(" <=> s.").append(primaryKey);
-        }
-        if (builder.length() > 0)
-        {
-            builder.append(" AND ");
-        }
-        builder.append("t.")
-                .append(PixelsDeltaMergeColumns.BUCKET_ID)
-                .append(" <=> s.")
-                .append(PixelsDeltaMergeColumns.BUCKET_ID);
-        return builder.toString();
+        return PixelsMergeSupport.buildMergeCondition(primaryKeys, Collections.<String>emptyList(), true);
     }
 
     static Map<String, String> buildUpsertAssignmentMap(StructType targetSchema, PixelsDeltaMergeOptions options)
@@ -176,13 +142,12 @@ final class PixelsDeltaMergeSupport
 
     static boolean isHardDelete(PixelsDeltaMergeOptions options)
     {
-        return !"ignore".equalsIgnoreCase(options.getDeleteMode())
-                && !"soft".equalsIgnoreCase(options.getDeleteMode());
+        return PixelsMergeSupport.isHardDelete(options);
     }
 
     static boolean isSoftDelete(PixelsDeltaMergeOptions options)
     {
-        return "soft".equalsIgnoreCase(options.getDeleteMode());
+        return PixelsMergeSupport.isSoftDelete(options);
     }
 
     private static String[] partitionColumns()

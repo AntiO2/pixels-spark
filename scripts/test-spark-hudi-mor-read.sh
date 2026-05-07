@@ -31,7 +31,6 @@ if ! command -v "${SPARK_SQL_BIN}" >/dev/null 2>&1 && [[ ! -x "${SPARK_SQL_BIN}"
   exit 1
 fi
 
-HUDI_SPARK_BUNDLE="${HUDI_SPARK_BUNDLE:-org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0}"
 DB_ROOT="${DB_ROOT:-s3a://home-haoyue/hudi/hudi_hybench_sf1333_2.db}"
 TABLE_NAME="${TABLE_NAME:-savingaccount}"
 TABLE_PATH="${TABLE_PATH:-${DB_ROOT}/${TABLE_NAME}}"
@@ -133,7 +132,6 @@ Examples:
 
 Optional env:
   SPARK_SQL_BIN      Path to spark-sql
-  HUDI_SPARK_BUNDLE  Maven coordinate for Hudi Spark bundle
   DB_ROOT            Root path of the Hudi database
   TABLE_NAME         Table under DB_ROOT to test
   TABLE_PATH         Full table path; overrides DB_ROOT/TABLE_NAME
@@ -233,7 +231,6 @@ EOF
 exec "${SPARK_SQL_BIN}" \
   --master "${SPARK_MASTER}" \
   --driver-memory "${SPARK_DRIVER_MEMORY}" \
-  --packages "${HUDI_SPARK_BUNDLE}" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
   --conf spark.sql.parquet.enableVectorizedReader=false \

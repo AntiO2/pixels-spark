@@ -4,6 +4,7 @@ import io.pixelsdb.spark.benchmark.BenchmarkTableDefinition;
 import io.pixelsdb.spark.benchmark.BenchmarkTableRegistry;
 import io.pixelsdb.spark.bucket.PixelsBucketId;
 import io.pixelsdb.spark.config.PixelsSparkConfig;
+import io.pixelsdb.spark.hudi.PixelsHudiPartitioning;
 import io.pixelsdb.spark.merge.PixelsDeltaMergeColumns;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -27,6 +28,10 @@ public class PixelsBenchmarkDeltaImportApp
     private static final String DELTA_ENABLE_DELETION_VECTORS_PROPERTY = "delta.enableDeletionVectors";
     private static final String IMPORT_CHUNK_TEMP_DIR = "pixels.import.chunk-temp-dir";
     private static final String IMPORT_BENCHMARK = "pixels.import.benchmark";
+    private static final String MODE_DELTA = "delta";
+    private static final String MODE_HUDI = "hudi";
+    private static final String HUDI_INDEX_SIMPLE = "SIMPLE";
+    private static final String HUDI_INDEX_RECORD_LEVEL = "RECORD_LEVEL_INDEX";
 
     public static void main(String[] args)
     {
@@ -65,16 +70,30 @@ public class PixelsBenchmarkDeltaImportApp
                 .getIntOrDefault(PixelsSparkConfig.IMPORT_CSV_CHUNK_ROWS, 2560000);
         boolean countRows = PixelsSparkConfig.instance()
                 .getBooleanOrDefault(PixelsSparkConfig.IMPORT_COUNT_ROWS, false);
+        String importMode = normalizeImportMode(firstNonEmpty(
+                System.getenv("IMPORT_MODE"),
+                PixelsSparkConfig.instance().getOrDefault(PixelsSparkConfig.IMPORT_MODE, MODE_DELTA)));
         int bucketCount = PixelsSparkConfig.instance().getIntOrDefault("node.bucket.num", 0);
+        int hudiPartitionCount = PixelsHudiPartitioning.resolvePartitionCount(bucketCount);
         boolean enableDeletionVectors = PixelsSparkConfig.instance()
                 .getBooleanOrDefault(PixelsSparkConfig.DELTA_ENABLE_DELETION_VECTORS, true);
 
         List<BenchmarkTableDefinition> tableDefinitions = BenchmarkTableRegistry.list(benchmark);
 
         SparkSession.Builder builder = SparkSession.builder()
-                .appName("pixels-benchmark-delta-import")
-                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog");
+                .appName("pixels-benchmark-" + importMode + "-import");
+
+        if (MODE_HUDI.equals(importMode))
+        {
+            builder.config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                    .config("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension")
+                    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog");
+        }
+        else
+        {
+            builder.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog");
+        }
 
         if (sparkMaster != null && !sparkMaster.trim().isEmpty())
         {
@@ -98,7 +117,9 @@ public class PixelsBenchmarkDeltaImportApp
                         csvPath,
                         deltaPath,
                         bucketCount,
+                        hudiPartitionCount,
                         enableDeletionVectors,
+                        importMode,
                         chunkRows,
                         countRows);
 
@@ -106,7 +127,9 @@ public class PixelsBenchmarkDeltaImportApp
                         + " csv_path=" + csvPath
                         + " delta_path=" + deltaPath
                         + " benchmark=" + benchmark
+                        + " import_mode=" + importMode
                         + " bucket_count=" + bucketCount
+                        + " hudi_partition_count=" + hudiPartitionCount
                         + " deletion_vectors=" + enableDeletionVectors
                         + " chunk_rows=" + chunkRows
                         + (countRows ? " row_count=" + rowCount : ""));
@@ -143,7 +166,9 @@ public class PixelsBenchmarkDeltaImportApp
             String csvPath,
             String deltaPath,
             int bucketCount,
+            int hudiPartitionCount,
             boolean enableDeletionVectors,
+            String importMode,
             int chunkRows,
             boolean countRows)
     {
@@ -157,15 +182,26 @@ public class PixelsBenchmarkDeltaImportApp
                     .option("nullValue", "")
                     .option("delimiter", definition.getDelimiter())
                     .load(csvPath);
-            Dataset<Row> output = withHashBucketColumn(dataset, definition, bucketCount);
-            if (bucketCount > 0)
+            Dataset<Row> output = dataset;
+                if (MODE_DELTA.equals(importMode))
+                {
+                    output = withHashBucketColumn(dataset, definition, bucketCount);
+                    if (bucketCount > 0)
+                    {
+                        output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
+                    }
+                }
+                else
+                {
+                    output = withHudiPartitionColumn(dataset, definition, hudiPartitionCount);
+                    output = output.repartition(hudiPartitionCount, col(PixelsHudiPartitioning.HUDI_PARTITION_COLUMN));
+                }
+            writeChunk(output, definition, deltaPath, bucketCount, hudiPartitionCount, enableDeletionVectors, importMode, true);
+            updateTablePropertiesAfterImport(spark, deltaPath, enableDeletionVectors, importMode);
+            if (MODE_HUDI.equals(importMode) && shouldBuildRecordLevelIndex(definition))
             {
-                output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
+                enableHudiRecordLevelIndex(spark, definition, deltaPath, hudiPartitionCount);
             }
-            writeChunk(output, deltaPath, bucketCount, enableDeletionVectors, true);
-            spark.sql("ALTER TABLE delta.`" + deltaPath + "` SET TBLPROPERTIES ("
-                    + "'" + DELTA_ENABLE_DELETION_VECTORS_PROPERTY + "'='"
-                    + String.valueOf(enableDeletionVectors) + "')");
             return countRows ? output.count() : -1L;
         }
 
@@ -204,12 +240,21 @@ public class PixelsBenchmarkDeltaImportApp
                         .option("delimiter", definition.getDelimiter())
                         .load(chunkPath.toString());
 
-                Dataset<Row> output = withHashBucketColumn(chunk, definition, bucketCount);
-                if (bucketCount > 0)
+                Dataset<Row> output = chunk;
+                if (MODE_DELTA.equals(importMode))
                 {
-                    output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
+                    output = withHashBucketColumn(chunk, definition, bucketCount);
+                    if (bucketCount > 0)
+                    {
+                        output = output.repartition(bucketCount, col(PixelsDeltaMergeColumns.BUCKET_ID));
+                    }
                 }
-                writeChunk(output, deltaPath, bucketCount, enableDeletionVectors, firstChunk);
+                else
+                {
+                    output = withHudiPartitionColumn(chunk, definition, hudiPartitionCount);
+                    output = output.repartition(hudiPartitionCount, col(PixelsHudiPartitioning.HUDI_PARTITION_COLUMN));
+                }
+                writeChunk(output, definition, deltaPath, bucketCount, hudiPartitionCount, enableDeletionVectors, importMode, firstChunk);
                 if (countRows)
                 {
                     totalRows += output.count();
@@ -220,9 +265,11 @@ public class PixelsBenchmarkDeltaImportApp
 
             if (!firstChunk)
             {
-                spark.sql("ALTER TABLE delta.`" + deltaPath + "` SET TBLPROPERTIES ("
-                        + "'" + DELTA_ENABLE_DELETION_VECTORS_PROPERTY + "'='"
-                        + String.valueOf(enableDeletionVectors) + "')");
+                updateTablePropertiesAfterImport(spark, deltaPath, enableDeletionVectors, importMode);
+                if (MODE_HUDI.equals(importMode) && shouldBuildRecordLevelIndex(definition))
+                {
+                    enableHudiRecordLevelIndex(spark, definition, deltaPath, hudiPartitionCount);
+                }
             }
         }
         catch (IOException e)
@@ -269,6 +316,24 @@ public class PixelsBenchmarkDeltaImportApp
 
     private static void writeChunk(
             Dataset<Row> output,
+            BenchmarkTableDefinition definition,
+            String targetPath,
+            int bucketCount,
+            int hudiPartitionCount,
+            boolean enableDeletionVectors,
+            String importMode,
+            boolean firstChunk)
+    {
+        if (MODE_HUDI.equals(importMode))
+        {
+            writeHudiChunk(output, definition, targetPath, hudiPartitionCount, firstChunk);
+            return;
+        }
+        writeDeltaChunk(output, targetPath, bucketCount, enableDeletionVectors, firstChunk);
+    }
+
+    private static void writeDeltaChunk(
+            Dataset<Row> output,
             String deltaPath,
             int bucketCount,
             boolean enableDeletionVectors,
@@ -287,6 +352,147 @@ public class PixelsBenchmarkDeltaImportApp
         writer.save(deltaPath);
     }
 
+    private static void writeHudiChunk(
+            Dataset<Row> output,
+            BenchmarkTableDefinition definition,
+            String targetPath,
+            int hudiPartitionCount,
+            boolean firstChunk)
+    {
+        String recordKeyField = String.join(",", definition.getPrimaryKeyColumns());
+        String precombineField = selectPrecombineField(definition);
+        String operation = firstChunk ? "bulk_insert" : "upsert";
+
+        org.apache.spark.sql.DataFrameWriter<Row> writer = output.write()
+                .format("hudi")
+                .mode(firstChunk ? "overwrite" : "append")
+                .option("hoodie.table.name", definition.getTableName().toLowerCase())
+                .option("hoodie.datasource.write.table.type", "COPY_ON_WRITE")
+                .option("hoodie.datasource.write.operation", operation)
+                .option("hoodie.datasource.write.recordkey.field", recordKeyField)
+                .option("hoodie.datasource.write.precombine.field", precombineField)
+                .option("hoodie.datasource.write.partitionpath.field", PixelsHudiPartitioning.HUDI_PARTITION_COLUMN)
+                .option("hoodie.insert.shuffle.parallelism", String.valueOf(Math.max(1, hudiPartitionCount)))
+                .option("hoodie.upsert.shuffle.parallelism", String.valueOf(Math.max(1, hudiPartitionCount)))
+                .option("hoodie.metadata.enable", "false")
+                .option("hoodie.metadata.record.index.enable", "false")
+                .option("hoodie.index.type", HUDI_INDEX_SIMPLE)
+                .option("hoodie.datasource.write.keygenerator.class",
+                        definition.getPrimaryKeyColumns().size() > 1
+                                ? "org.apache.hudi.keygen.ComplexKeyGenerator"
+                                : "org.apache.hudi.keygen.SimpleKeyGenerator");
+
+        writer.save(targetPath);
+    }
+
+    private static void updateTablePropertiesAfterImport(
+            SparkSession spark,
+            String targetPath,
+            boolean enableDeletionVectors,
+            String importMode)
+    {
+        if (!MODE_DELTA.equals(importMode))
+        {
+            return;
+        }
+        spark.sql("ALTER TABLE delta.`" + targetPath + "` SET TBLPROPERTIES ("
+                + "'" + DELTA_ENABLE_DELETION_VECTORS_PROPERTY + "'='"
+                + String.valueOf(enableDeletionVectors) + "')");
+    }
+
+    private static void enableHudiRecordLevelIndex(
+            SparkSession spark,
+            BenchmarkTableDefinition definition,
+            String targetPath,
+            int hudiPartitionCount)
+    {
+        StructType targetSchema = PixelsHudiPartitioning.withPartitionColumnInSchema(definition.getSchema());
+        String[] selectedColumns = new String[targetSchema.fields().length];
+        for (int i = 0; i < targetSchema.fields().length; i++)
+        {
+            selectedColumns[i] = targetSchema.fields()[i].name();
+        }
+
+        Dataset<Row> sample = spark.read()
+                .format("hudi")
+                .load(targetPath)
+                .selectExpr(selectedColumns)
+                .limit(1);
+        if (sample.isEmpty())
+        {
+            return;
+        }
+
+        String recordKeyField = String.join(",", definition.getPrimaryKeyColumns());
+        String precombineField = selectPrecombineField(definition);
+        sample.write()
+                .format("hudi")
+                .mode("append")
+                .option("hoodie.table.name", definition.getTableName().toLowerCase())
+                .option("hoodie.datasource.write.table.type", "COPY_ON_WRITE")
+                .option("hoodie.datasource.write.operation", "upsert")
+                .option("hoodie.datasource.write.recordkey.field", recordKeyField)
+                .option("hoodie.datasource.write.precombine.field", precombineField)
+                .option("hoodie.datasource.write.partitionpath.field", PixelsHudiPartitioning.HUDI_PARTITION_COLUMN)
+                .option("hoodie.datasource.write.keygenerator.class",
+                        definition.getPrimaryKeyColumns().size() > 1
+                                ? "org.apache.hudi.keygen.ComplexKeyGenerator"
+                                : "org.apache.hudi.keygen.SimpleKeyGenerator")
+                .option("hoodie.insert.shuffle.parallelism", "1")
+                .option("hoodie.upsert.shuffle.parallelism", String.valueOf(Math.max(1, hudiPartitionCount)))
+                .option("hoodie.metadata.enable", "true")
+                .option("hoodie.metadata.record.level.index.enable", "true")
+                .option("hoodie.metadata.record.index.enable", "false")
+                .option("hoodie.metadata.global.record.level.index.enable", "false")
+                .option("hoodie.index.type", HUDI_INDEX_RECORD_LEVEL)
+                .save(targetPath);
+    }
+
+    private static boolean shouldBuildRecordLevelIndex(BenchmarkTableDefinition definition)
+    {
+        return !"transfer".equalsIgnoreCase(definition.getTableName());
+    }
+
+    private static String selectPrecombineField(BenchmarkTableDefinition definition)
+    {
+        if (definition.getSchema().getFieldIndex("freshness_ts").isDefined())
+        {
+            return "freshness_ts";
+        }
+        if (definition.getSchema().getFieldIndex("last_update_timestamp").isDefined())
+        {
+            return "last_update_timestamp";
+        }
+        if (definition.getSchema().getFieldIndex("ts").isDefined())
+        {
+            return "ts";
+        }
+        return definition.getSchema().fields()[0].name();
+    }
+
+    private static String normalizeImportMode(String rawMode)
+    {
+        String mode = rawMode == null ? MODE_DELTA : rawMode.trim().toLowerCase();
+        if (!MODE_DELTA.equals(mode) && !MODE_HUDI.equals(mode))
+        {
+            throw new IllegalArgumentException("pixels.spark.import.mode must be one of: delta, hudi");
+        }
+        return mode;
+    }
+
+    private static String firstNonEmpty(String primary, String fallback)
+    {
+        if (primary != null && !primary.trim().isEmpty())
+        {
+            return primary.trim();
+        }
+        if (fallback != null && !fallback.trim().isEmpty())
+        {
+            return fallback.trim();
+        }
+        return null;
+    }
+
     private static Dataset<Row> withHashBucketColumn(
             Dataset<Row> dataset,
             BenchmarkTableDefinition definition,
@@ -297,5 +503,16 @@ public class PixelsBenchmarkDeltaImportApp
                 definition.getPrimaryKeyColumns(),
                 definition.getSchema(),
                 bucketCount);
+    }
+
+    private static Dataset<Row> withHudiPartitionColumn(
+            Dataset<Row> dataset,
+            BenchmarkTableDefinition definition,
+            int hudiPartitionCount)
+    {
+        return PixelsHudiPartitioning.withPartitionColumn(
+                dataset,
+                definition.getPrimaryKeyColumns(),
+                hudiPartitionCount);
     }
 }

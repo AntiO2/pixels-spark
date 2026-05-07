@@ -1,6 +1,8 @@
 package io.pixelsdb.spark.merge;
 
 import io.pixelsdb.spark.config.PixelsSparkConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -11,6 +13,8 @@ import java.util.Set;
 
 public class PixelsDeltaMergeOptions implements Serializable
 {
+    private static final Logger LOG = LoggerFactory.getLogger(PixelsDeltaMergeOptions.class);
+
     private final String rpcHost;
     private final int rpcPort;
     private final String metadataHost;
@@ -163,6 +167,16 @@ public class PixelsDeltaMergeOptions implements Serializable
         return "noop".equalsIgnoreCase(sinkMode);
     }
 
+    public boolean isHudiSinkMode()
+    {
+        return "hudi".equalsIgnoreCase(sinkMode);
+    }
+
+    public boolean isDeltaSinkMode()
+    {
+        return "delta".equalsIgnoreCase(sinkMode);
+    }
+
     public Set<Integer> getNoopBuckets()
     {
         return Collections.unmodifiableSet(noopBuckets);
@@ -231,12 +245,20 @@ public class PixelsDeltaMergeOptions implements Serializable
         String checkpointLocation = firstNonEmpty(
                 args.get("checkpoint-location"),
                 config.get(PixelsSparkConfig.DELTA_CHECKPOINT_LOCATION));
+        String cdcExecutionMode = config.get(PixelsSparkConfig.CDC_EXECUTION_MODE);
+        String legacyDeltaMode = config.get(PixelsSparkConfig.DELTA_MODE);
+        if (args.get("mode") == null && cdcExecutionMode == null && legacyDeltaMode != null)
+        {
+            LOG.warn("Config '{}' is deprecated; use '{}' instead.",
+                    PixelsSparkConfig.DELTA_MODE,
+                    PixelsSparkConfig.CDC_EXECUTION_MODE);
+        }
         String mode = firstNonEmpty(
                 args.get("mode"),
-                config.getOrDefault(PixelsSparkConfig.DELTA_MODE, "polling"));
+                firstNonEmpty(cdcExecutionMode, firstNonEmpty(legacyDeltaMode, "polling")));
         String sinkMode = firstNonEmpty(
                 args.get("sink-mode"),
-                config.getOrDefault(PixelsSparkConfig.DELTA_SINK_MODE, "delta"));
+                config.getOrDefault(PixelsSparkConfig.SINK_MODE, "delta"));
         Set<Integer> noopBuckets = parseBucketRanges(firstNonEmpty(
                 args.get("noop-buckets"),
                 config.get(PixelsSparkConfig.DELTA_NOOP_BUCKETS)));
@@ -328,9 +350,11 @@ public class PixelsDeltaMergeOptions implements Serializable
     private static String normalizeSinkMode(String raw)
     {
         String value = firstNonEmpty(raw, "delta");
-        if (!"delta".equalsIgnoreCase(value) && !"noop".equalsIgnoreCase(value))
+        if (!"delta".equalsIgnoreCase(value)
+                && !"hudi".equalsIgnoreCase(value)
+                && !"noop".equalsIgnoreCase(value))
         {
-            throw new IllegalArgumentException("sink-mode must be one of: delta, noop");
+            throw new IllegalArgumentException("sink-mode must be one of: delta, hudi, noop");
         }
         return value.toLowerCase();
     }

@@ -151,6 +151,21 @@ under the License.
 			<version>3.3.2</version>
 		</dependency>
 		<dependency>
+			<groupId>org.apache.hudi</groupId>
+			<artifactId>hudi-spark3.5-bundle_${spark.scala.binary.version}</artifactId>
+			<version>1.1.1</version>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.hadoop</groupId>
+			<artifactId>hadoop-aws</artifactId>
+			<version>3.3.4</version>
+		</dependency>
+		<dependency>
+			<groupId>com.amazonaws</groupId>
+			<artifactId>aws-java-sdk-bundle</artifactId>
+			<version>1.12.262</version>
+		</dependency>
+		<dependency>
 			<groupId>org.junit.jupiter</groupId>
 			<artifactId>junit-jupiter</artifactId>
 			<version>${junit.jupiter.version}</version>

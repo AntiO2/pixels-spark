@@ -196,5 +196,9 @@ scripts/__pycache__/
 /metastore_db/
 /spark-warehouse/
 /tmp/
+scripts/metastore_db/
+scripts/spark-warehouse/
+scripts/derby.log
+scripts/*.log
 
 # End of https://www.toptal.com/developers/gitignore/api/intellij,java,linux,visualstudiocode

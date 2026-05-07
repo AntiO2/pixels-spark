@@ -28,9 +28,6 @@ if ! command -v "${SPARK_SQL_BIN}" >/dev/null 2>&1 && [[ ! -x "${SPARK_SQL_BIN}"
   exit 1
 fi
 
-HUDI_SPARK_BUNDLE="${HUDI_SPARK_BUNDLE:-org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0}"
-HADOOP_AWS_PACKAGE="${HADOOP_AWS_PACKAGE:-org.apache.hadoop:hadoop-aws:3.3.4}"
-AWS_JAVA_SDK_BUNDLE="${AWS_JAVA_SDK_BUNDLE:-com.amazonaws:aws-java-sdk-bundle:1.12.262}"
 TABLE_PATH="${TABLE_PATH:-s3a://home-zinuo/hudi/hybench_sf1x/savingAccount}"
 TABLE_NAME="${TABLE_NAME:-savingaccount_random_update_target}"
 UPDATE_ROWS="${UPDATE_ROWS:-50000}"
@@ -50,7 +47,7 @@ S3_ENDPOINT="${S3_ENDPOINT:-s3.us-east-2.amazonaws.com}"
 S3_PATH_STYLE="${S3_PATH_STYLE:-false}"
 S3_SSL_ENABLED="${S3_SSL_ENABLED:-true}"
 OUTPUT_LOG="${OUTPUT_LOG:-/tmp/test-hudi-savingaccount-random-update.log}"
-INDEX_MODE="${INDEX_MODE:-RECORD_INDEX}"
+INDEX_MODE="${INDEX_MODE:-RECORD_LEVEL_INDEX}"
 HUDI_TABLE_TYPE="${HUDI_TABLE_TYPE:-MOR}"
 UPDATE_MODE="${UPDATE_MODE:-auto}"
 
@@ -97,10 +94,14 @@ if [[ "${EFFECTIVE_UPDATE_MODE}" != "MERGE" && "${EFFECTIVE_UPDATE_MODE}" != "UP
   exit 1
 fi
 
-if [[ "${INDEX_MODE_UPPER}" == "RECORD_INDEX" ]]; then
+if [[ "${INDEX_MODE_UPPER}" == "RECORD_INDEX" || "${INDEX_MODE_UPPER}" == "RECORD_LEVEL_INDEX" || "${INDEX_MODE_UPPER}" == "GLOBAL_RECORD_LEVEL_INDEX" ]]; then
   HOODIE_METADATA_ENABLE_VALUE="true"
   HOODIE_METADATA_RECORD_INDEX_ENABLE_VALUE="true"
-  HOODIE_INDEX_TYPE_VALUE="RECORD_INDEX"
+  if [[ "${INDEX_MODE_UPPER}" == "RECORD_INDEX" ]]; then
+    HOODIE_INDEX_TYPE_VALUE="RECORD_LEVEL_INDEX"
+  else
+    HOODIE_INDEX_TYPE_VALUE="${INDEX_MODE_UPPER}"
+  fi
 else
   HOODIE_METADATA_ENABLE_VALUE="false"
   HOODIE_METADATA_RECORD_INDEX_ENABLE_VALUE="false"
@@ -198,7 +199,6 @@ set +e
 "${SPARK_SQL_BIN}" \
   --master "${SPARK_MASTER}" \
   --driver-memory "${SPARK_DRIVER_MEMORY}" \
-  --packages "${HUDI_SPARK_BUNDLE},${HADOOP_AWS_PACKAGE},${AWS_JAVA_SDK_BUNDLE}" \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \

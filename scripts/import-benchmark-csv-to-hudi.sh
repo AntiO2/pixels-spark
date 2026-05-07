@@ -25,9 +25,6 @@ TABLE_NAME="$4"
 BENCHMARK="${5:-hybench}"
 
 SPARK_SUBMIT_BIN="${SPARK_SUBMIT_BIN:-$(command -v spark-submit)}"
-HUDI_SPARK_BUNDLE="${HUDI_SPARK_BUNDLE:-org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0}"
-HADOOP_AWS_PACKAGE="${HADOOP_AWS_PACKAGE:-org.apache.hadoop:hadoop-aws:3.3.4}"
-AWS_JAVA_SDK_BUNDLE="${AWS_JAVA_SDK_BUNDLE:-com.amazonaws:aws-java-sdk-bundle:1.12.262}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-4g}"
 SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-4g}"
 SPARK_LOCAL_DIR="${SPARK_LOCAL_DIR:-/tmp/pixels-spark-local}"
@@ -57,7 +54,6 @@ if [[ -n "$S3_ENDPOINT" ]]; then
 fi
 
 "$SPARK_SUBMIT_BIN" \
-  --packages "${HUDI_SPARK_BUNDLE},${HADOOP_AWS_PACKAGE},${AWS_JAVA_SDK_BUNDLE}" \
   --class io.pixelsdb.spark.app.PixelsBenchmarkHudiImportApp \
   --master "$SPARK_MASTER" \
   --driver-memory "$SPARK_DRIVER_MEMORY" \

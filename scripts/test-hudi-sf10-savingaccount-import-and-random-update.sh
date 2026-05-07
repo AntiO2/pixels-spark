@@ -43,9 +43,6 @@ AWS_REGION_VALUE="${AWS_REGION:-us-east-2}"
 S3_ENDPOINT="${S3_ENDPOINT:-s3.us-east-2.amazonaws.com}"
 S3_PATH_STYLE="${S3_PATH_STYLE:-false}"
 S3_SSL_ENABLED="${S3_SSL_ENABLED:-true}"
-HUDI_SPARK_BUNDLE="${HUDI_SPARK_BUNDLE:-org.apache.hudi:hudi-spark3.5-bundle_2.12:0.15.0}"
-HADOOP_AWS_PACKAGE="${HADOOP_AWS_PACKAGE:-org.apache.hadoop:hadoop-aws:3.3.4}"
-AWS_JAVA_SDK_BUNDLE="${AWS_JAVA_SDK_BUNDLE:-com.amazonaws:aws-java-sdk-bundle:1.12.262}"
 UPDATE_ROWS="${UPDATE_ROWS:-100000}"
 BATCH_SIZE="${BATCH_SIZE:-1000}"
 BATCH_COUNT="${BATCH_COUNT:-100}"
@@ -123,7 +120,7 @@ LOCATION '${TABLE_PATH}';
 ALTER TABLE ${TABLE_NAME} SET TBLPROPERTIES (
   hoodie.metadata.enable = 'true',
   hoodie.metadata.record.index.enable = 'true',
-  hoodie.index.type = 'RECORD_INDEX'
+  hoodie.index.type = 'RECORD_LEVEL_INDEX'
 );
 
 SELECT COUNT(*) AS rows_after_index_setup FROM ${TABLE_NAME};
@@ -134,7 +131,6 @@ run_spark_sql_file() {
   "${SPARK_SQL_BIN}" \
     --master "${SPARK_MASTER}" \
     --driver-memory "${SPARK_DRIVER_MEMORY}" \
-    --packages "${HUDI_SPARK_BUNDLE},${HADOOP_AWS_PACKAGE},${AWS_JAVA_SDK_BUNDLE}" \
     --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
     --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
     --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \

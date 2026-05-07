@@ -18,9 +18,19 @@ public class PixelsDeltaMergeApp
         PixelsDeltaMergeOptions options = PixelsDeltaMergeOptions.fromArguments(parsedArgs);
 
         SparkSession.Builder builder = SparkSession.builder()
-                .appName("pixels-delta-merge")
-                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog");
+                .appName("pixels-cdc-merge-" + options.getSinkMode());
+
+        if (options.isHudiSinkMode())
+        {
+            builder.config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+                    .config("spark.sql.extensions", "org.apache.spark.sql.hudi.HoodieSparkSessionExtension")
+                    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.hudi.catalog.HoodieCatalog");
+        }
+        else
+        {
+            builder.config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog");
+        }
 
         String sparkMaster = parsedArgs.get("spark-master");
         if (sparkMaster == null || sparkMaster.trim().isEmpty())

@@ -24,11 +24,11 @@ RPC_PORT="${RPC_PORT:-$(pixels_get_property pixels.spark.rpc.port 9091)}"
 METADATA_HOST="${METADATA_HOST:-$(pixels_get_property pixels.spark.metadata.host 127.0.0.1)}"
 METADATA_PORT="${METADATA_PORT:-$(pixels_get_property pixels.spark.metadata.port 18888)}"
 SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[2])}"
-MODE="${MODE:-$(pixels_get_property pixels.spark.delta.mode polling)}"
+MODE="${MODE:-$(pixels_get_property pixels.spark.cdc.execution.mode "$(pixels_get_property pixels.spark.delta.mode polling)")}"
 TRIGGER_MODE="${TRIGGER_MODE:-$(pixels_get_property pixels.spark.delta.trigger.mode processing-time)}"
 TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-$(pixels_get_property pixels.spark.delta.trigger.interval 10 seconds)}"
 DELETE_MODE="${DELETE_MODE:-$(pixels_get_property pixels.spark.delta.delete.mode hard)}"
-SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.delta.sink-mode delta)}"
+SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.sink.mode delta)}"
 NOOP_BUCKETS="${NOOP_BUCKETS:-$(pixels_get_property pixels.spark.delta.noop-buckets "")}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-$(pixels_get_property pixels.spark.driver.memory 8g)}"
 SPARK_LOCAL_PARALLELISM="${SPARK_LOCAL_PARALLELISM:-}"
@@ -77,6 +77,17 @@ submit_args+=" --conf spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws
 submit_args+=" --conf spark.hadoop.fs.s3a.endpoint=s3.us-east-2.amazonaws.com"
 submit_args+=" --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true"
 submit_args+=" --conf spark.hadoop.fs.s3a.path.style.access=false"
+
+# Keep submit-time SQL extensions aligned with sink mode so parser/planner
+# behavior is deterministic even when external Spark defaults are present.
+if [[ "${SINK_MODE}" == "hudi" ]]; then
+  submit_args+=" --conf spark.serializer=org.apache.spark.serializer.KryoSerializer"
+  submit_args+=" --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension"
+  submit_args+=" --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog"
+elif [[ "${SINK_MODE}" == "delta" ]]; then
+  submit_args+=" --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension"
+  submit_args+=" --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
+fi
 
 export SPARK_SUBMIT_EXTRA_ARGS="${submit_args}"
 

@@ -11,7 +11,7 @@ TARBALL_PATH="${OUTPUT_ROOT}/${PACKAGE_BASENAME}.tar.gz"
 
 PIXELS_JAR="${PIXELS_JAR:-${ROOT_DIR}/target/pixels-spark-0.1.jar}"
 SPARK_DIST="${SPARK_DIST:-/home/ubuntu/disk1/opt/spark-3.5.6-bin-hadoop3}"
-HUDI_BUNDLE_JAR="${HUDI_BUNDLE_JAR:-${HOME}/.ivy2/jars/org.apache.hudi_hudi-spark3.5-bundle_2.12-0.15.0.jar}"
+HUDI_BUNDLE_JAR="${HUDI_BUNDLE_JAR:-${HOME}/.ivy2/jars/org.apache.hudi_hudi-spark3.5-bundle_2.12-1.1.1.jar}"
 HIVE_STORAGE_API_JAR="${HIVE_STORAGE_API_JAR:-${HOME}/.ivy2/jars/org.apache.hive_hive-storage-api-2.8.1.jar}"
 SLF4J_API_JAR="${SLF4J_API_JAR:-${HOME}/.ivy2/jars/org.slf4j_slf4j-api-1.7.36.jar}"
 PIXELS_DELTA_ENV_SOURCE="${PIXELS_DELTA_ENV_SOURCE:-/home/ubuntu/disk1/opt/conf/pixels-delta-env.sh}"
@@ -204,6 +204,11 @@ if [[ -z "${S3_ACCESS_KEY:-}" || -z "${S3_SECRET_KEY:-}" ]]; then
   exit 1
 fi
 
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-${S3_ACCESS_KEY}}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-${S3_SECRET_KEY}}"
+export AWS_REGION="${AWS_REGION}"
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-${AWS_REGION}}"
+
 export HUDI_CONF_DIR="${ROOT_DIR}/conf/hudi"
 export SPARK_HOME="${ROOT_DIR}/spark"
 export SPARK_LOG_DIR="${ROOT_DIR}/logs"
@@ -214,17 +219,22 @@ THRIFT_HOST="${THRIFT_HOST:-0.0.0.0}"
 THRIFT_PORT="${THRIFT_PORT:-10000}"
 THRIFT_HTTP_PORT="${THRIFT_HTTP_PORT:-10001}"
 THRIFT_WORK_DIR="${THRIFT_WORK_DIR:-${ROOT_DIR}/run/spark-warehouse}"
-HUDI_DB_ROOT="${HUDI_DB_ROOT:-s3a://home-haoyue/hudi/hudi_hybench_sf1333_2.db}"
+SPARK_MASTER_HOST="${SPARK_MASTER_HOST:-$(hostname -f 2>/dev/null || hostname)}"
+SPARK_MASTER_PORT="${SPARK_MASTER_PORT:-7077}"
+SPARK_MASTER_URL="${SPARK_MASTER_URL:-spark://${SPARK_MASTER_HOST}:${SPARK_MASTER_PORT}}"
+HUDI_DB_ROOT="${HUDI_DB_ROOT:-s3a://home-haoyue/hudi/hybench_sf10.db}"
 GLUE_ENABLED="${GLUE_ENABLED:-true}"
 GLUE_REGION="${GLUE_REGION:-${AWS_REGION}}"
 GLUE_CLIENT_JARS="${GLUE_CLIENT_JARS:-}"
-SPARK_MASTER="${SPARK_MASTER:-local[16]}"
+SPARK_MASTER="${SPARK_MASTER:-${SPARK_MASTER_URL}}"
 SPARK_DRIVER_MEMORY="${SPARK_DRIVER_MEMORY:-48g}"
-SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-16g}"
-SPARK_SQL_SHUFFLE_PARTITIONS="${SPARK_SQL_SHUFFLE_PARTITIONS:-1}"
-SPARK_DEFAULT_PARALLELISM="${SPARK_DEFAULT_PARALLELISM:-16}"
-SPARK_DRIVER_EXTRA_JAVA_OPTIONS="${SPARK_DRIVER_EXTRA_JAVA_OPTIONS:--Djdk.attach.allowAttachSelf=true --add-modules=jdk.attach --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED}"
-SPARK_EXECUTOR_EXTRA_JAVA_OPTIONS="${SPARK_EXECUTOR_EXTRA_JAVA_OPTIONS:--Djdk.attach.allowAttachSelf=true --add-modules=jdk.attach --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED}"
+SPARK_EXECUTOR_CORES="${SPARK_EXECUTOR_CORES:-16}"
+SPARK_EXECUTOR_MEMORY="${SPARK_EXECUTOR_MEMORY:-24g}"
+SPARK_EXECUTOR_INSTANCES="${SPARK_EXECUTOR_INSTANCES:-4}"
+SPARK_SQL_SHUFFLE_PARTITIONS="${SPARK_SQL_SHUFFLE_PARTITIONS:-64}"
+SPARK_DEFAULT_PARALLELISM="${SPARK_DEFAULT_PARALLELISM:-64}"
+SPARK_DRIVER_EXTRA_JAVA_OPTIONS="${SPARK_DRIVER_EXTRA_JAVA_OPTIONS:--Djava.security.manager=allow -Djdk.attach.allowAttachSelf=true --add-modules=jdk.attach --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED}"
+SPARK_EXECUTOR_EXTRA_JAVA_OPTIONS="${SPARK_EXECUTOR_EXTRA_JAVA_OPTIONS:--Djava.security.manager=allow -Djdk.attach.allowAttachSelf=true --add-modules=jdk.attach --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED}"
 
 mkdir -p "${SPARK_LOG_DIR}" "${SPARK_PID_DIR}" "${THRIFT_WORK_DIR}"
 
@@ -232,7 +242,9 @@ HUDI_BUNDLE_LOCAL_JAR="$(find "${ROOT_DIR}/lib" -maxdepth 1 -name 'org.apache.hu
 HIVE_STORAGE_LOCAL_JAR="$(find "${ROOT_DIR}/lib" -maxdepth 1 -name 'org.apache.hive_hive-storage-api-*.jar' | head -n 1)"
 SLF4J_LOCAL_JAR="$(find "${ROOT_DIR}/lib" -maxdepth 1 -name 'org.slf4j_slf4j-api-*.jar' | head -n 1)"
 HUDI_JARS="${HUDI_BUNDLE_LOCAL_JAR},${HIVE_STORAGE_LOCAL_JAR},${SLF4J_LOCAL_JAR}"
+BASE_CLASSPATH="${HUDI_BUNDLE_LOCAL_JAR}:${HIVE_STORAGE_LOCAL_JAR}:${SLF4J_LOCAL_JAR}"
 EXTRA_JARS=""
+EXTRA_CLASSPATH=""
 GLUE_CONF=()
 
 if [[ "${GLUE_ENABLED}" == "true" ]]; then
@@ -246,6 +258,7 @@ if [[ "${GLUE_ENABLED}" == "true" ]]; then
     exit 1
   fi
   EXTRA_JARS=",${GLUE_CLIENT_JARS}"
+  EXTRA_CLASSPATH=":$(printf '%s' "${GLUE_CLIENT_JARS}" | tr ',' ':')"
   GLUE_CONF=(
     --hiveconf "hive.metastore.client.factory.class=com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
     --hiveconf "hive.metastore.glue.region=${GLUE_REGION}"
@@ -254,16 +267,23 @@ if [[ "${GLUE_ENABLED}" == "true" ]]; then
   )
 fi
 
+# Ensure HoodieCatalog is visible before SparkSession initializes.
+export SPARK_CLASSPATH="${BASE_CLASSPATH}${EXTRA_CLASSPATH}${SPARK_CLASSPATH:+:${SPARK_CLASSPATH}}"
+
 exec "${SPARK_HOME}/sbin/start-thriftserver.sh" \
   --master "${SPARK_MASTER}" \
   --driver-memory "${SPARK_DRIVER_MEMORY}" \
+  --executor-cores "${SPARK_EXECUTOR_CORES}" \
   --executor-memory "${SPARK_EXECUTOR_MEMORY}" \
+  --num-executors "${SPARK_EXECUTOR_INSTANCES}" \
+  --driver-class-path "${BASE_CLASSPATH}${EXTRA_CLASSPATH}" \
   --jars "${HUDI_JARS}${EXTRA_JARS}" \
   --hiveconf hive.server2.thrift.bind.host="${THRIFT_HOST}" \
   --hiveconf hive.server2.thrift.port="${THRIFT_PORT}" \
   --hiveconf hive.server2.transport.mode=binary \
   --conf spark.sql.warehouse.dir="${THRIFT_WORK_DIR}" \
   --conf spark.sql.extensions=org.apache.spark.sql.hudi.HoodieSparkSessionExtension \
+  --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.hudi.catalog.HoodieCatalog \
   --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
   --conf spark.sql.adaptive.enabled=true \
   --conf spark.sql.adaptive.coalescePartitions.enabled=true \
@@ -274,17 +294,86 @@ exec "${SPARK_HOME}/sbin/start-thriftserver.sh" \
   --conf spark.sql.hive.thriftServer.singleSession=true \
   --conf spark.hadoop.hoodie.metadata.enable=true \
   --conf spark.hadoop.hoodie.datasource.query.type=snapshot \
+  --conf spark.executor.extraClassPath="${BASE_CLASSPATH}${EXTRA_CLASSPATH}" \
   --conf spark.driver.extraJavaOptions="${SPARK_DRIVER_EXTRA_JAVA_OPTIONS}" \
   --conf spark.executor.extraJavaOptions="${SPARK_EXECUTOR_EXTRA_JAVA_OPTIONS}" \
   --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
-  --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider \
-  --conf spark.hadoop.fs.s3a.access.key="${S3_ACCESS_KEY}" \
-  --conf spark.hadoop.fs.s3a.secret.key="${S3_SECRET_KEY}" \
+  --conf spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.DefaultAWSCredentialsProviderChain \
   --conf spark.hadoop.fs.s3a.endpoint="${S3_ENDPOINT#https://}" \
   --conf spark.hadoop.fs.s3a.endpoint.region="${AWS_REGION}" \
   --conf spark.hadoop.fs.s3a.connection.ssl.enabled=true \
   --conf spark.hadoop.fs.s3a.path.style.access=false \
   "${GLUE_CONF[@]}"
+EOF
+
+cat > "${PACKAGE_DIR}/bin/start-spark-master.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -f "${ROOT_DIR}/conf/pixels-delta-env.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/conf/pixels-delta-env.sh"
+fi
+
+if [[ -n "${JAVA17_HOME:-}" ]]; then
+  export JAVA_HOME="${JAVA17_HOME}"
+fi
+
+export SPARK_HOME="${ROOT_DIR}/spark"
+export SPARK_LOG_DIR="${ROOT_DIR}/logs"
+export SPARK_PID_DIR="${ROOT_DIR}/run"
+export SPARK_MASTER_HOST="${SPARK_MASTER_HOST:-$(hostname -f 2>/dev/null || hostname)}"
+export SPARK_MASTER_PORT="${SPARK_MASTER_PORT:-7077}"
+export SPARK_MASTER_WEBUI_PORT="${SPARK_MASTER_WEBUI_PORT:-8080}"
+
+exec "${SPARK_HOME}/sbin/start-master.sh"
+EOF
+
+cat > "${PACKAGE_DIR}/bin/stop-spark-master.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export SPARK_HOME="${ROOT_DIR}/spark"
+export SPARK_PID_DIR="${ROOT_DIR}/run"
+exec "${SPARK_HOME}/sbin/stop-master.sh"
+EOF
+
+cat > "${PACKAGE_DIR}/bin/start-spark-worker.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ -f "${ROOT_DIR}/conf/pixels-delta-env.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/conf/pixels-delta-env.sh"
+fi
+
+if [[ -n "${JAVA17_HOME:-}" ]]; then
+  export JAVA_HOME="${JAVA17_HOME}"
+fi
+
+export SPARK_HOME="${ROOT_DIR}/spark"
+export SPARK_LOG_DIR="${ROOT_DIR}/logs"
+export SPARK_PID_DIR="${ROOT_DIR}/run"
+export SPARK_WORKER_MEMORY="${SPARK_WORKER_MEMORY:-96g}"
+export SPARK_WORKER_CORES="${SPARK_WORKER_CORES:-16}"
+SPARK_MASTER_URL="${SPARK_MASTER_URL:-spark://$(hostname -f 2>/dev/null || hostname):7077}"
+
+exec "${SPARK_HOME}/sbin/start-worker.sh" "${SPARK_MASTER_URL}"
+EOF
+
+cat > "${PACKAGE_DIR}/bin/stop-spark-worker.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export SPARK_HOME="${ROOT_DIR}/spark"
+export SPARK_PID_DIR="${ROOT_DIR}/run"
+exec "${SPARK_HOME}/sbin/stop-worker.sh"
 EOF
 
 cat > "${PACKAGE_DIR}/bin/stop-thriftserver.sh" <<'EOF'
@@ -335,19 +424,32 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JDBC_URL="${JDBC_URL:-jdbc:hive2://127.0.0.1:10000/default}"
-SCHEMA_NAME="${SCHEMA_NAME:-hudi_hybench_sf1333_2}"
-HUDI_DB_ROOT="${HUDI_DB_ROOT:-s3a://home-haoyue/hudi/hudi_hybench_sf1333_2.db}"
+SCHEMA_NAME="${SCHEMA_NAME:-hybench_sf10}"
+HUDI_DB_ROOT="${HUDI_DB_ROOT:-s3a://home-haoyue/hudi/hybench_sf10.db}"
 TABLES_RAW="${TABLES_RAW:-customer company savingaccount checkingaccount transfer checking loanapps loantrans}"
 BEELINE_BIN="${ROOT_DIR}/spark/bin/beeline"
 SQL_FILE="$(mktemp /tmp/pixels-hudi-init-XXXXXX.sql)"
 trap 'rm -f "${SQL_FILE}"' EXIT
 
+target_table_for() {
+  case "$1" in
+    transfer) printf 'transferFinal' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 {
   printf 'CREATE DATABASE IF NOT EXISTS %s;\n' "${SCHEMA_NAME}"
+  printf 'USE %s;\n' "${SCHEMA_NAME}"
+
   for table_name in ${TABLES_RAW}; do
-    printf 'CREATE TABLE IF NOT EXISTS %s.%s USING hudi LOCATION '\''%s/%s'\'';\n' \
-      "${SCHEMA_NAME}" "${table_name}" "${HUDI_DB_ROOT}" "${table_name}"
+    target_table="$(target_table_for "${table_name}")"
+    printf 'DROP TABLE IF EXISTS %s.%s;\n' \
+      "${SCHEMA_NAME}" "${target_table}"
+    printf 'CREATE TABLE %s.%s USING hudi LOCATION '\''%s/%s'\'';\n' \
+      "${SCHEMA_NAME}" "${target_table}" "${HUDI_DB_ROOT}" "${target_table}"
   done
+
   printf 'SHOW TABLES IN %s;\n' "${SCHEMA_NAME}"
 } > "${SQL_FILE}"
 
@@ -356,6 +458,10 @@ EOF
 
 chmod +x \
   "${PACKAGE_DIR}/bin/start-thriftserver.sh" \
+  "${PACKAGE_DIR}/bin/start-spark-master.sh" \
+  "${PACKAGE_DIR}/bin/stop-spark-master.sh" \
+  "${PACKAGE_DIR}/bin/start-spark-worker.sh" \
+  "${PACKAGE_DIR}/bin/stop-spark-worker.sh" \
   "${PACKAGE_DIR}/bin/stop-thriftserver.sh" \
   "${PACKAGE_DIR}/bin/status-thriftserver.sh" \
   "${PACKAGE_DIR}/bin/beeline.sh" \

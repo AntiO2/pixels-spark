@@ -21,11 +21,11 @@ RPC_PORT="${RPC_PORT:-$(pixels_get_property pixels.spark.rpc.port 9091)}"
 METADATA_HOST="${METADATA_HOST:-$(pixels_get_property pixels.spark.metadata.host 127.0.0.1)}"
 METADATA_PORT="${METADATA_PORT:-$(pixels_get_property pixels.spark.metadata.port 18888)}"
 SPARK_MASTER="${SPARK_MASTER:-$(pixels_get_property pixels.spark.master local[2])}"
-MODE="${MODE:-$(pixels_get_property pixels.spark.delta.mode polling)}"
+MODE="${MODE:-$(pixels_get_property pixels.spark.cdc.execution.mode "$(pixels_get_property pixels.spark.delta.mode polling)")}"
 TRIGGER_MODE="${TRIGGER_MODE:-$(pixels_get_property pixels.spark.delta.trigger.mode processing-time)}"
 TRIGGER_INTERVAL="${TRIGGER_INTERVAL:-$(pixels_get_property pixels.spark.delta.trigger.interval 10 seconds)}"
 DELETE_MODE="${DELETE_MODE:-$(pixels_get_property pixels.spark.delta.delete.mode hard)}"
-SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.delta.sink-mode delta)}"
+SINK_MODE="${SINK_MODE:-$(pixels_get_property pixels.spark.sink.mode delta)}"
 NOOP_BUCKETS="${NOOP_BUCKETS:-$(pixels_get_property pixels.spark.delta.noop-buckets "")}"
 TABLES=()
 pixels_split_csv_property "$(pixels_get_property pixels.cdc.hybench.${PROFILE}.tables "$(pixels_get_property pixels.cdc.tables customer,company,savingaccount,checkingaccount,transfer,checking,loanapps,loantrans)")" TABLES
